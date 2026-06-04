@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Buyers — Wholesale CRM{% endblock %}
+{% block content %}
+<div class="card-header" style="margin-bottom:16px">
+  <h2>Buyer List</h2>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:start">
+
+  <!-- Buyer table -->
+  <div class="card" style="padding:0">
+    {% if buyers %}
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Phone</th>
+          <th>Strategy</th>
+          <th>Tier</th>
+          <th>Buy Box</th>
+          <th>Areas</th>
+          <th>Last Active</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for b in buyers %}
+        <tr>
+          <td>
+            <div style="font-weight:500">{{ b.name }}</div>
+            {% if b.email %}<div class="text-muted" style="font-size:11px"><a href="mailto:{{ b.email }}">{{ b.email }}</a></div>{% endif %}
+          </td>
+          <td class="text-muted">{% if b.phone %}<a href="tel:{{ b.phone }}">{{ b.phone }}</a>{% else %}—{% endif %}</td>
+          <td class="text-muted" style="font-size:12px">{{ b.strategy or '—' }}</td>
+          <td>
+            {% if b.tier == 1 %}<span class="badge s-hot">Tier 1</span>
+            {% elif b.tier == 2 %}<span class="badge s-warm">Tier 2</span>
+            {% elif b.tier == 3 %}<span class="badge s-cold">Tier 3</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-muted" style="font-size:12px">
+            {% if b.buy_box_min or b.buy_box_max %}
+              ${{ '{:,.0f}'.format(b.buy_box_min) if b.buy_box_min else '0' }}–${{ '{:,.0f}'.format(b.buy_box_max) if b.buy_box_max else '∞' }}
+            {% else %}Any{% endif %}
+          </td>
+          <td class="text-muted" style="font-size:12px">
+            {% if b.target_areas %}{{ b.target_areas|join(', ') }}{% else %}Any{% endif %}
+          </td>
+          <td class="text-muted" style="font-size:11px">{{ b.last_active_at.strftime('%m/%d/%Y') if b.last_active_at else 'Never' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty">No buyers yet. Add one →</div>
+    {% endif %}
+  </div>
+
+  <!-- Add buyer form -->
+  <div class="card">
+    <h3 style="margin-bottom:14px">Add Buyer</h3>
+    <form method="post" action="/buyers">
+      <div class="form-group">
+        <label>Name *</label>
+        <input type="text" name="name" required>
+      </div>
+      <div class="form-group">
+        <label>Phone</label>
+        <input type="text" name="phone" placeholder="3175550100">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" name="email">
+      </div>
+      <div class="form-group">
+        <label>Strategy</label>
+        <select name="strategy">
+          <option value="">— Any —</option>
+          <option value="wholesale">Wholesale</option>
+          <option value="brrrr">BRRRR</option>
+          <option value="fix_flip">Fix &amp; Flip</option>
+          <option value="rental">Buy &amp; Hold</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Tier</label>
+        <select name="tier">
+          <option value="1">1 — Top buyer (quick close, cash)</option>
+          <option value="2" selected>2 — Active</option>
+          <option value="3">3 — Occasional</option>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="form-group">
+          <label>Buy Box Min ($)</label>
+          <input type="number" name="buy_box_min" placeholder="0" min="0">
+        </div>
+        <div class="form-group">
+          <label>Buy Box Max ($)</label>
+          <input type="number" name="buy_box_max" placeholder="no max" min="0">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Target ZIP codes (comma-separated)</label>
+        <input type="text" name="target_areas" placeholder="46201, 46202, 46218">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Add Buyer</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

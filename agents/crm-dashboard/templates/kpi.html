@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}KPIs — Wholesale CRM{% endblock %}
+{% block content %}
+<div class="card-header" style="margin-bottom:16px">
+  <h2>KPI Dashboard</h2>
+  <div class="text-muted" style="font-size:12px">Indianapolis, IN · Updated live</div>
+</div>
+
+<!-- Pipeline health -->
+<h3 style="margin-bottom:10px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Pipeline</h3>
+<div class="stat-grid" style="margin-bottom:24px">
+  <div class="stat-card">
+    <div class="stat-label">Total Leads</div>
+    <div class="stat-value">{{ kpi.total_leads }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Hot Leads</div>
+    <div class="stat-value" style="color:#991b1b">{{ kpi.hot_leads }}</div>
+    <div class="stat-sub">Active pipeline</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Under Contract</div>
+    <div class="stat-value" style="color:#166534">{{ kpi.under_contract }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">New This Week</div>
+    <div class="stat-value">{{ kpi.leads_this_week }}</div>
+    <div class="stat-sub">vs {{ kpi.leads_last_week }} last week</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Hot (30d)</div>
+    <div class="stat-value">{{ kpi.hot_30d }}</div>
+    <div class="stat-sub">became hot in 30 days</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">DNC</div>
+    <div class="stat-value" style="color:#9d174d">{{ kpi.dnc_leads }}</div>
+  </div>
+</div>
+
+<!-- Revenue -->
+<h3 style="margin-bottom:10px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Revenue</h3>
+<div class="stat-grid" style="margin-bottom:24px">
+  <div class="stat-card">
+    <div class="stat-label">Closed Deals</div>
+    <div class="stat-value">{{ kpi.deals_closed }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Revenue</div>
+    <div class="stat-value" style="color:#166534;font-size:20px">${{ '{:,.0f}'.format(kpi.total_revenue) }}</div>
+    <div class="stat-sub">assignment fees</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Avg Assignment Fee</div>
+    <div class="stat-value" style="font-size:20px">${{ '{:,.0f}'.format(kpi.avg_fee) }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Active Deals</div>
+    <div class="stat-value">{{ kpi.deals_active }}</div>
+    <div class="stat-sub">in progress</div>
+  </div>
+</div>
+
+<!-- Outreach -->
+<h3 style="margin-bottom:10px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Outreach</h3>
+<div class="stat-grid" style="margin-bottom:24px">
+  <div class="stat-card">
+    <div class="stat-label">SMS Sent (30d)</div>
+    <div class="stat-value dir-out">{{ kpi.sms_sent_30d }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">SMS Received (30d)</div>
+    <div class="stat-value dir-in">{{ kpi.sms_recv_30d }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Reply Rate</div>
+    <div class="stat-value">
+      {% if kpi.sms_sent_30d > 0 %}
+        {{ '{:.1f}'.format(kpi.sms_recv_30d / kpi.sms_sent_30d * 100) }}%
+      {% else %}—{% endif %}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Buyers</div>
+    <div class="stat-value">{{ kpi.total_buyers }}</div>
+    <div class="stat-sub">on list</div>
+  </div>
+</div>
+
+<!-- Status breakdown -->
+<div class="card">
+  <h3 style="margin-bottom:14px">Lead Status Breakdown</h3>
+  <div style="display:flex;flex-wrap:wrap;gap:10px">
+    {% for status, count in kpi.status_counts.items() %}
+    <div style="text-align:center;min-width:80px">
+      <div style="font-size:22px;font-weight:700;color:#1a1a2e">{{ count }}</div>
+      <span class="badge s-{{ status }}" style="margin-top:4px">{{ status.replace('_',' ').title() }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

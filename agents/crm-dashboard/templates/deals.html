@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Deals — Wholesale CRM{% endblock %}
+{% block content %}
+<div class="card-header" style="margin-bottom:16px">
+  <h2>Deals</h2>
+</div>
+
+<!-- Summary stats -->
+<div class="stat-grid" style="margin-bottom:20px">
+  <div class="stat-card">
+    <div class="stat-label">Active Deals</div>
+    <div class="stat-value">{{ deals|selectattr('status','ne','closed')|list|length }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Closed Deals</div>
+    <div class="stat-value">{{ deals|selectattr('status','eq','closed')|list|length }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Assignment Fees</div>
+    <div class="stat-value" style="font-size:18px">
+      ${{ '{:,.0f}'.format(deals|selectattr('assignment_fee')|map(attribute='assignment_fee')|sum) }}
+    </div>
+  </div>
+</div>
+
+<div class="card" style="padding:0">
+  {% if deals %}
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Address</th>
+        <th>Status</th>
+        <th>ARV Mid</th>
+        <th>Offer</th>
+        <th>Fee</th>
+        <th>PSA Signed</th>
+        <th>Closed</th>
+        <th>Buyer</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for d in deals %}
+      <tr>
+        <td class="text-muted">#{{ d.id }}</td>
+        <td>
+          <div style="font-weight:500">{{ d.address }}</div>
+          <div class="text-muted" style="font-size:11px">{{ d.city }}, IN {{ d.zip }}</div>
+        </td>
+        <td>
+          <span class="badge {% if d.status == 'closed' %}s-closed{% elif d.status == 'dead' %}s-dead{% elif d.status == 'under_contract' %}s-under_contract{% else %}s-new{% endif %}">
+            {{ d.status.replace('_',' ').title() }}
+          </span>
+        </td>
+        <td class="text-muted">{% if d.arv_mid %}${{ '{:,.0f}'.format(d.arv_mid) }}{% else %}—{% endif %}</td>
+        <td>{% if d.offer_amount %}<strong>${{ '{:,.0f}'.format(d.offer_amount) }}</strong>{% else %}—{% endif %}</td>
+        <td style="color:#166534;font-weight:600">{% if d.assignment_fee %}${{ '{:,.0f}'.format(d.assignment_fee) }}{% else %}—{% endif %}</td>
+        <td class="text-muted" style="font-size:11px">{{ d.psa_signed_at.strftime('%m/%d/%Y') if d.psa_signed_at else '—' }}</td>
+        <td class="text-muted" style="font-size:11px">{{ d.closed_at.strftime('%m/%d/%Y') if d.closed_at else '—' }}</td>
+        <td class="text-muted" style="font-size:12px">
+          {% if d.buyer_name %}{{ d.buyer_name }}{% else %}—{% endif %}
+        </td>
+        <td>
+          {% if d.lead_id %}<a href="/leads/{{ d.lead_id }}" class="btn btn-secondary btn-xs">Lead</a>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">No deals yet.</div>
+  {% endif %}
+</div>
+{% endblock %}
