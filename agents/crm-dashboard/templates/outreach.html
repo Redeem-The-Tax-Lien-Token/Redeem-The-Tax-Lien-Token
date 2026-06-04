@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Outreach Log — Wholesale CRM{% endblock %}
+{% block content %}
+<div class="card-header" style="margin-bottom:16px">
+  <h2>Outreach Log</h2>
+</div>
+
+<!-- Filter bar -->
+<form method="get" action="/outreach" style="margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <div>
+    <select name="direction" onchange="this.form.submit()" style="width:auto">
+      <option value="" {% if not filter_dir %}selected{% endif %}>All directions</option>
+      <option value="out" {% if filter_dir == 'out' %}selected{% endif %}>Outbound only</option>
+      <option value="in"  {% if filter_dir == 'in'  %}selected{% endif %}>Inbound only</option>
+    </select>
+  </div>
+  <div>
+    <select name="channel" onchange="this.form.submit()" style="width:auto">
+      <option value="" {% if not filter_channel %}selected{% endif %}>All channels</option>
+      <option value="sms"   {% if filter_channel == 'sms'   %}selected{% endif %}>SMS</option>
+      <option value="email" {% if filter_channel == 'email' %}selected{% endif %}>Email</option>
+      <option value="call"  {% if filter_channel == 'call'  %}selected{% endif %}>Call</option>
+    </select>
+  </div>
+  {% if filter_dir or filter_channel %}
+    <a href="/outreach" class="btn btn-secondary btn-sm">Clear</a>
+  {% endif %}
+  <div class="text-muted" style="margin-left:auto;font-size:12px">{{ rows|length }} record{% if rows|length != 1 %}s{% endif %}</div>
+</form>
+
+<div class="card" style="padding:0">
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Lead</th>
+        <th>Dir</th>
+        <th>Channel</th>
+        <th>Message</th>
+        <th>Status</th>
+        <th>Agent</th>
+        <th>SID</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="text-muted" style="font-size:11px;white-space:nowrap">{{ r.created_at.strftime('%m/%d %H:%M') if r.created_at else '—' }}</td>
+        <td style="font-size:12px">
+          {% if r.lead_id %}<a href="/leads/{{ r.lead_id }}">#{{ r.lead_id }}{% if r.owner_name %} {{ r.owner_name }}{% endif %}</a>
+          {% else %}<span class="text-muted">—</span>{% endif %}
+        </td>
+        <td>
+          <span class="{% if r.direction == 'out' %}dir-out{% else %}dir-in{% endif %}" style="font-size:12px;font-weight:700">
+            {{ r.direction|upper }}
+          </span>
+        </td>
+        <td class="text-muted" style="font-size:11px">{{ r.channel }}</td>
+        <td style="font-size:12px;max-width:300px">
+          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px" title="{{ r.body or '' }}">
+            {{ r.body or '—' }}
+          </div>
+        </td>
+        <td class="text-muted" style="font-size:11px">{{ r.status or '—' }}</td>
+        <td class="text-muted" style="font-size:11px">{{ r.agent_name or '—' }}</td>
+        <td class="text-muted" style="font-size:10px">{{ (r.twilio_sid or '')[:16] }}{% if r.twilio_sid and r.twilio_sid|length > 16 %}…{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">No outreach records found.</div>
+  {% endif %}
+</div>
+{% endblock %}

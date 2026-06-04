@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Lead #{{ lead.id }} — Wholesale CRM{% endblock %}
+{% block content %}
+<div class="card-header" style="margin-bottom:16px">
+  <div>
+    <h2>{{ lead.owner_name or 'Unknown Owner' }}</h2>
+    <div class="text-muted" style="font-size:13px">{{ lead.address }}, {{ lead.city }}, IN {{ lead.zip }}</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span class="badge s-{{ lead.status }}" style="font-size:13px;padding:4px 12px">{{ lead.status.replace('_',' ').title() }}</span>
+    <a href="/" class="btn btn-secondary btn-sm">← Pipeline</a>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+  <!-- Left column -->
+  <div>
+    <!-- Property Info -->
+    <div class="card">
+      <h3>Property</h3>
+      <table style="width:100%">
+        <tr><td class="text-muted" style="width:40%;padding:5px 0">Address</td><td>{{ lead.address }}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">City / ZIP</td><td>{{ lead.city }}, IN {{ lead.zip }}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Property Type</td><td>{{ lead.property_type or '—' }}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Beds / Baths</td><td>{% if lead.beds %}{{ lead.beds }}bd / {{ lead.baths or '?' }}ba{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Sq Ft</td><td>{% if lead.sqft %}{{ '{:,}'.format(lead.sqft) }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Year Built</td><td>{{ lead.year_built or '—' }}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">AVM</td><td>{% if lead.avm %}${{ '{:,.0f}'.format(lead.avm) }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Equity %</td><td>{% if lead.equity_pct %}{{ lead.equity_pct }}%{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Years Owned</td><td>{{ lead.years_owned or '—' }}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Motivation</td><td>{{ lead.motivation_type or '—' }}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">ATTOM ID</td><td class="text-muted" style="font-size:11px">{{ lead.attom_id or '—' }}</td></tr>
+      </table>
+    </div>
+
+    <!-- Owner / Contact -->
+    <div class="card">
+      <h3>Owner Contact</h3>
+      <table style="width:100%">
+        <tr><td class="text-muted" style="width:40%;padding:5px 0">Name</td><td>{{ lead.owner_name or '—' }}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Phone</td><td>{% if lead.phone %}<a href="tel:{{ lead.phone }}">{{ lead.phone }}</a>{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Email</td><td>{% if lead.email %}<a href="mailto:{{ lead.email }}">{{ lead.email }}</a>{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Skip Traced</td><td>{{ lead.skip_traced_at.strftime('%m/%d/%Y %H:%M') if lead.skip_traced_at else '—' }}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">DNC Checked</td><td>{{ '✓' if lead.dnc_checked else '—' }}</td></tr>
+      </table>
+    </div>
+
+    <!-- ARV / MAO -->
+    <div class="card">
+      <h3>ARV / MAO</h3>
+      <table style="width:100%">
+        <tr><td class="text-muted" style="width:40%;padding:5px 0">ARV Low</td><td>{% if lead.arv_low %}${{ '{:,.0f}'.format(lead.arv_low) }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">ARV Mid</td><td>{% if lead.arv_mid %}<strong>${{ '{:,.0f}'.format(lead.arv_mid) }}</strong>{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">ARV High</td><td>{% if lead.arv_high %}${{ '{:,.0f}'.format(lead.arv_high) }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Repair Estimate</td><td>{% if lead.repair_estimate %}${{ '{:,.0f}'.format(lead.repair_estimate) }}{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">MAO (70% rule)</td><td>{% if lead.mao %}<strong style="color:#166534">${{ '{:,.0f}'.format(lead.mao) }}</strong>{% else %}—{% endif %}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">ARV Confidence</td><td>{{ lead.arv_confidence or '—' }}</td></tr>
+        <tr><td class="text-muted" style="padding:5px 0">Comps Used</td><td>{{ lead.comps_used or '—' }}</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Right column -->
+  <div>
+    <!-- Status Change -->
+    {% set terminal = lead.status in ['dnc', 'closed', 'dead'] %}
+    <div class="card">
+      <h3>Change Status</h3>
+      {% if terminal %}
+        <div class="text-muted" style="margin-bottom:10px;font-size:12px">
+          Status <strong>{{ lead.status }}</strong> is terminal — use Force Override to change.
+        </div>
+      {% endif %}
+      <form method="post" action="/leads/{{ lead.id }}/status" onsubmit="return confirmStatus(this)">
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div style="flex:1;min-width:130px">
+            <label>New Status</label>
+            <select name="new_status">
+              {% for s in ['new','traced','contacted','hot','warm','cold','under_contract','closed','dead','dnc'] %}
+                <option value="{{ s }}" {% if s == lead.status %}selected{% endif %}>{{ s.replace('_',' ').title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+              <input type="checkbox" name="force" value="1" id="forceChk"> Force Override
+            </label>
+          </div>
+          <div>
+            <button type="submit" class="btn btn-primary btn-sm">Update</button>
+          </div>
+        </div>
+        <div class="form-group mt-8" style="display:none" id="reasonRow">
+          <label>Override Reason</label>
+          <input type="text" name="reason" placeholder="Required when forcing terminal state">
+        </div>
+      </form>
+      {% if lead.manual_override_at %}
+        <div class="text-muted mt-8" style="font-size:11px">
+          Last override: {{ lead.manual_override_at.strftime('%m/%d/%Y %H:%M') }} by {{ lead.manual_override_by }}
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Manual SMS -->
+    {% if lead.phone and lead.status not in ['dnc','dead'] %}
+    <div class="card">
+      <h3>Send Manual SMS</h3>
+      {% if not calling_hours %}
+        <div class="flash flash-error" style="margin-bottom:10px">Outside calling hours (8AM–9PM ET). SMS will be queued.</div>
+      {% endif %}
+      <form method="post" action="/leads/{{ lead.id }}/sms">
+        <div class="form-group">
+          <label>To: {{ lead.phone }}</label>
+          <textarea name="body" rows="3" placeholder="Message…" maxlength="1600" required style="width:100%"></textarea>
+        </div>
+        <div style="display:flex;justify-content:flex-end">
+          <button type="submit" class="btn btn-primary btn-sm">Send SMS</button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+
+    <!-- Outreach Log -->
+    <div class="card">
+      <h3>Outreach History</h3>
+      {% if outreach %}
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Dir</th>
+              <th>Channel</th>
+              <th>Preview</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for o in outreach %}
+            <tr>
+              <td class="text-muted" style="font-size:11px;white-space:nowrap">{{ o.created_at.strftime('%m/%d %H:%M') if o.created_at else '—' }}</td>
+              <td><span class="{% if o.direction == 'out' %}dir-out{% else %}dir-in{% endif %}" style="font-size:12px;font-weight:600">{{ o.direction|upper }}</span></td>
+              <td class="text-muted" style="font-size:11px">{{ o.channel }}</td>
+              <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ o.body or '—' }}</td>
+              <td class="text-muted" style="font-size:11px">{{ o.status or '—' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty" style="padding:16px">No outreach yet.</div>
+      {% endif %}
+    </div>
+
+    <!-- Classification History -->
+    <div class="card">
+      <h3>AI Classifications</h3>
+      {% if scores %}
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Classification</th>
+              <th>Score</th>
+              <th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for s in scores %}
+            <tr>
+              <td class="text-muted" style="font-size:11px">{{ s.created_at.strftime('%m/%d %H:%M') if s.created_at else '—' }}</td>
+              <td><span class="badge s-{{ s.classification|lower }}">{{ s.classification }}</span></td>
+              <td class="text-muted">{{ s.score or '—' }}</td>
+              <td class="text-muted" style="font-size:11px">{{ s.confidence or '—' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty" style="padding:16px">No classifications yet.</div>
+      {% endif %}
+    </div>
+
+    <!-- Timeline -->
+    <div class="card">
+      <div style="font-size:11px;color:#94a3b8">
+        <div>Created: {{ lead.created_at.strftime('%m/%d/%Y %H:%M') if lead.created_at else '—' }}</div>
+        <div>Updated: {{ lead.updated_at.strftime('%m/%d/%Y %H:%M') if lead.updated_at else '—' }}</div>
+        <div>Lead ID: #{{ lead.id }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('forceChk').addEventListener('change', function() {
+  document.getElementById('reasonRow').style.display = this.checked ? 'block' : 'none';
+});
+function confirmStatus(form) {
+  var sel = form.querySelector('[name=new_status]').value;
+  var terminal = ['dnc','closed','dead'];
+  if (terminal.includes(sel) && !form.querySelector('[name=force]').checked) {
+    return confirm('Move to ' + sel + '? This may be a terminal state.');
+  }
+  return true;
+}
+</script>
+{% endblock %}

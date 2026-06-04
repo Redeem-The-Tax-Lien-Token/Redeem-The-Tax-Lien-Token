@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Send SMS — Wholesale CRM{% endblock %}
+{% block content %}
+<div class="card-header" style="margin-bottom:16px">
+  <h2>Send Manual SMS</h2>
+</div>
+
+{% if not calling_hours %}
+<div class="flash flash-error" style="margin-bottom:16px">
+  Outside TCPA calling hours (8 AM – 9 PM ET). This message will be logged but Twilio send is blocked.
+</div>
+{% endif %}
+
+{% if not twilio_configured %}
+<div class="flash flash-error" style="margin-bottom:16px">
+  Twilio not configured — set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER in Secrets.
+</div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+
+  <div class="card">
+    <h3 style="margin-bottom:14px">Compose Message</h3>
+    <form method="post" action="/sms/send">
+      <div class="form-group">
+        <label>Select Lead (optional)</label>
+        <select name="lead_id" id="leadSelect" onchange="fillFromLead(this)">
+          <option value="">— Manual entry —</option>
+          {% for l in leads %}
+            <option value="{{ l.id }}" data-phone="{{ l.phone or '' }}" data-name="{{ l.owner_name or '' }}">
+              #{{ l.id }} — {{ l.owner_name or 'Unknown' }} — {{ l.phone or 'no phone' }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>To (10-digit, no dashes)</label>
+        <input type="text" name="to_number" id="toNumber" placeholder="3175550100" pattern="[0-9]{10}" required>
+      </div>
+      <div class="form-group">
+        <label>Message</label>
+        <textarea name="body" id="msgBody" rows="5" maxlength="1600" placeholder="Your message…" required style="width:100%;resize:vertical"></textarea>
+        <div style="font-size:11px;color:#94a3b8;text-align:right;margin-top:4px">
+          <span id="charCount">0</span> / 1600 chars
+        </div>
+      </div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:10px;background:#f8fafc;padding:8px;border-radius:4px">
+        TCPA opt-out footer will be appended automatically if not present.
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%" {% if not calling_hours or not twilio_configured %}disabled{% endif %}>
+        Send SMS
+      </button>
+    </form>
+  </div>
+
+  <div>
+    <div class="card">
+      <h3>Quick Templates</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="setTemplate(1)">Touch 1 — Introduction</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="setTemplate(2)">Touch 2 — Follow-up</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="setTemplate(3)">Touch 3 — Final</button>
+      </div>
+      <div id="templatePreview" style="margin-top:12px;font-size:12px;color:#475569;background:#f8fafc;padding:10px;border-radius:4px;min-height:40px;white-space:pre-wrap;display:none"></div>
+    </div>
+
+    <div class="card mt-16">
+      <h3>TCPA Reminder</h3>
+      <ul style="font-size:12px;color:#64748b;line-height:1.8;padding-left:16px">
+        <li>Calling hours: 8 AM – 9 PM ET only</li>
+        <li>Always include opt-out footer</li>
+        <li>Never message DNC leads</li>
+        <li>Verify DNC status before sending</li>
+        <li>Keep records of consent</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+var LEAD_NAME = '';
+var TEMPLATES = {
+  1: "Hi {name}, I'm a local real estate investor in Indianapolis. I noticed your property at {addr} and wanted to reach out — if you're ever open to a quick, as-is cash offer, I'd love to chat. No pressure. Reply STOP to unsubscribe.",
+  2: "Hi {name}, following up on my earlier message about {addr}. We buy houses in any condition — no repairs, no commissions, fast close. Interested? Reply STOP to unsubscribe.",
+  3: "Last message from me, {name}. If you'd ever consider selling {addr} for cash, I'm ready to make a fair offer this week. Reply STOP to unsubscribe."
+};
+
+function fillFromLead(sel) {
+  var opt = sel.options[sel.selectedIndex];
+  var phone = opt.getAttribute('data-phone') || '';
+  var name  = opt.getAttribute('data-name') || '';
+  LEAD_NAME = name.split(' ')[0] || 'there';
+  if (phone) document.getElementById('toNumber').value = phone.replace(/\D/g,'').replace(/^1/,'');
+}
+
+function setTemplate(n) {
+  var name = LEAD_NAME || 'there';
+  var msg = TEMPLATES[n].replace(/{name}/g, name).replace(/{addr}/g, 'your property');
+  document.getElementById('msgBody').value = msg;
+  document.getElementById('templatePreview').textContent = msg;
+  document.getElementById('templatePreview').style.display = 'block';
+  updateCount();
+}
+
+document.getElementById('msgBody').addEventListener('input', updateCount);
+function updateCount() {
+  document.getElementById('charCount').textContent = document.getElementById('msgBody').value.length;
+}
+</script>
+{% endblock %}

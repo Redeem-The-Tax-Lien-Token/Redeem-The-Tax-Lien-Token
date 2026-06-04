@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Pipeline — Wholesale CRM{% endblock %}
+{% block content %}
+<div class="card-header" style="margin-bottom:16px">
+  <h2>Lead Pipeline</h2>
+</div>
+
+<!-- Status summary bar -->
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+  <a href="/" class="badge s-{{ 'all' }}" style="padding:5px 12px;font-size:12px;{% if not filter_status %}background:#1a1a2e;color:#fff;{% else %}background:#e2e8f0;color:#475569;{% endif %}">
+    All ({{ counts.values()|sum }})
+  </a>
+  {% for s in ['hot','under_contract','warm','contacted','traced','new','cold','dead','dnc','closed'] %}
+    {% if counts.get(s, 0) > 0 %}
+    <a href="/?status={{ s }}" class="badge s-{{ s }}" style="padding:5px 12px;font-size:12px;{% if filter_status == s %}outline:2px solid #1a1a2e;{% endif %}">
+      {{ s.replace('_',' ').title() }} ({{ counts.get(s, 0) }})
+    </a>
+    {% endif %}
+  {% endfor %}
+</div>
+
+<!-- Search -->
+<form method="get" action="/" style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+  {% if filter_status %}<input type="hidden" name="status" value="{{ filter_status }}">{% endif %}
+  <input type="text" name="q" value="{{ q }}" placeholder="Search name, address, phone, zip…" style="width:320px">
+  <button type="submit" class="btn btn-primary btn-sm">Search</button>
+  {% if q or filter_status %}<a href="/" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
+</form>
+
+<div class="card" style="padding:0">
+  {% if leads %}
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name / Address</th>
+        <th>Phone</th>
+        <th>Status</th>
+        <th>Motivation</th>
+        <th>Equity</th>
+        <th>Updated</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for l in leads %}
+      <tr>
+        <td class="text-muted">#{{ l.id }}</td>
+        <td>
+          <div style="font-weight:500">{{ l.owner_name or '—' }}</div>
+          <div class="text-muted" style="font-size:12px">{{ l.address }}, {{ l.city }} {{ l.zip }}</div>
+        </td>
+        <td class="text-muted">{{ l.phone or '—' }}</td>
+        <td><span class="badge s-{{ l.status }}">{{ l.status.replace('_',' ').title() }}</span></td>
+        <td class="text-muted">{{ l.motivation_type or '—' }}</td>
+        <td class="text-muted">{% if l.equity_pct %}{{ l.equity_pct }}%{% else %}—{% endif %}</td>
+        <td class="text-muted" style="font-size:12px">{{ l.updated_at.strftime('%m/%d %H:%M') if l.updated_at else '—' }}</td>
+        <td><a href="/leads/{{ l.id }}" class="btn btn-secondary btn-xs">View</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">No leads found.</div>
+  {% endif %}
+</div>
+{% endblock %}
