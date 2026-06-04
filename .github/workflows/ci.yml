@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint (Python syntax check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install shared deps
+        run: pip install sqlalchemy psycopg2-binary
+      - name: Syntax-check all Python files
+        run: python -m compileall -q shared/ db-bootstrap/
+      - name: Verify migration SQL is parseable
+        run: python -c "
+import re, pathlib
+sql = pathlib.Path('shared/schema/migrate.sql').read_text()
+assert 'CREATE TABLE IF NOT EXISTS leads' in sql
+assert 'CREATE TABLE IF NOT EXISTS outreach_log' in sql
+assert 'CREATE TABLE IF NOT EXISTS lead_scores' in sql
+assert 'CREATE TABLE IF NOT EXISTS deals' in sql
+assert 'CREATE TABLE IF NOT EXISTS buyers' in sql
+assert 'CREATE TABLE IF NOT EXISTS agent_events' in sql
+print('All 6 expected table definitions found in migrate.sql')
+"
