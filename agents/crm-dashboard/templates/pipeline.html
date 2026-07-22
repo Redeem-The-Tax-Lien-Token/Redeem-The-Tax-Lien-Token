@@ -19,12 +19,28 @@
   {% endfor %}
 </div>
 
+<!-- Segment filter bar -->
+{% if segments %}
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+  <span class="text-muted" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Segment:</span>
+  <a href="/" class="badge s-{{ 'all' }}" style="padding:5px 12px;font-size:12px;{% if not filter_segment %}background:#1a1a2e;color:#fff;{% else %}background:#e2e8f0;color:#475569;{% endif %}">
+    All
+  </a>
+  {% for seg in segments %}
+    <a href="/?segment={{ seg.name }}" class="badge" style="padding:5px 12px;font-size:12px;{% if filter_segment == seg.name %}background:#1a1a2e;color:#fff;{% else %}background:#e2e8f0;color:#475569;{% endif %}">
+      {{ seg.name }} ({{ seg.count }})
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
+
 <!-- Search -->
 <form method="get" action="/" style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
   {% if filter_status %}<input type="hidden" name="status" value="{{ filter_status }}">{% endif %}
+  {% if filter_segment %}<input type="hidden" name="segment" value="{{ filter_segment }}">{% endif %}
   <input type="text" name="q" value="{{ q }}" placeholder="Search name, address, phone, zip…" style="width:320px">
   <button type="submit" class="btn btn-primary btn-sm">Search</button>
-  {% if q or filter_status %}<a href="/" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
+  {% if q or filter_status or filter_segment %}<a href="/" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
 </form>
 
 <div class="card" style="padding:0">
@@ -36,6 +52,7 @@
         <th>Name / Address</th>
         <th>Phone</th>
         <th>Status</th>
+        <th>Segment</th>
         <th>Motivation</th>
         <th>Equity</th>
         <th>Updated</th>
@@ -52,6 +69,7 @@
         </td>
         <td class="text-muted">{{ l.phone or '—' }}</td>
         <td><span class="badge s-{{ l.status }}">{{ l.status.replace('_',' ').title() }}</span></td>
+        <td class="text-muted" style="font-size:12px">{{ l.segment or '—' }}</td>
         <td class="text-muted">{{ l.motivation_type or '—' }}</td>
         <td class="text-muted">{% if l.equity_pct %}{{ l.equity_pct }}%{% else %}—{% endif %}</td>
         <td class="text-muted" style="font-size:12px">{{ l.updated_at.strftime('%m/%d %H:%M') if l.updated_at else '—' }}</td>

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS leads (
     motivation_type      TEXT,              -- tax_delinquent | pre_foreclosure | vacant | high_equity
     equity_pct           NUMERIC(5,2),
     list_source          TEXT,              -- attom_distressed | list_puller | manual | csv_import
+    segment              TEXT,              -- user-defined group tag (e.g. 'Q3-Indy-NE', 'csv-batch-1')
     skip_traced_at       TIMESTAMPTZ,
     dnc_checked          BOOLEAN NOT NULL DEFAULT FALSE,
     status               TEXT NOT NULL DEFAULT 'new'
@@ -128,6 +129,10 @@ CREATE INDEX IF NOT EXISTS idx_leads_zip         ON leads(zip);
 CREATE INDEX IF NOT EXISTS idx_leads_phone       ON leads(phone);
 CREATE INDEX IF NOT EXISTS idx_leads_attom_id    ON leads(attom_id);
 CREATE INDEX IF NOT EXISTS idx_leads_created_at  ON leads(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_leads_segment     ON leads(segment);
+
+-- additive migration: add segment column to existing deployments
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS segment TEXT;
 
 -- outreach_log: per-lead history, inbound reply feed
 CREATE INDEX IF NOT EXISTS idx_outreach_lead_id    ON outreach_log(lead_id);

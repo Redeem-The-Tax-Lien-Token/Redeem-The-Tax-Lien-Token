@@ -162,7 +162,7 @@ def logout(request: Request):
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-def pipeline(request: Request, status: str = "", q: str = ""):
+def pipeline(request: Request, status: str = "", q: str = "", segment: str = ""):
     if not is_authenticated(request):
         return _login_redirect()
     with session_ctx() as db:
@@ -172,12 +172,25 @@ def pipeline(request: Request, status: str = "", q: str = ""):
         ).fetchall()
         counts = {r[0]: r[1] for r in counts_rows}
 
+        # Distinct segments with counts for the segment filter bar
+        seg_rows = db.execute(
+            text("""
+                SELECT segment, COUNT(*) FROM leads
+                WHERE segment IS NOT NULL AND segment != ''
+                GROUP BY segment ORDER BY segment
+            """)
+        ).fetchall()
+        segments = [{"name": r[0], "count": r[1]} for r in seg_rows]
+
         # Leads query with optional filters
         where_clauses = []
         params: dict = {}
         if status:
             where_clauses.append("status = :status")
             params["status"] = status
+        if segment:
+            where_clauses.append("segment = :segment")
+            params["segment"] = segment
         if q:
             where_clauses.append(
                 "(owner_name ILIKE :q OR address ILIKE :q OR phone ILIKE :q OR zip ILIKE :q)"
@@ -188,7 +201,8 @@ def pipeline(request: Request, status: str = "", q: str = ""):
         leads = db.execute(
             text(f"""
                 SELECT id, address, city, zip, owner_name, phone,
-                       status, motivation_type, equity_pct, created_at, updated_at
+                       status, motivation_type, equity_pct, segment,
+                       created_at, updated_at
                 FROM   leads
                 {where}
                 ORDER BY
@@ -214,8 +228,14 @@ def pipeline(request: Request, status: str = "", q: str = ""):
 
     return templates.TemplateResponse(
         "pipeline.html",
-        _ctx(request, {"leads": leads, "counts": counts,
-                        "filter_status": status, "q": q}),
+        _ctx(request, {
+            "leads":          leads,
+            "counts":         counts,
+            "segments":       segments,
+            "filter_status":  status,
+            "filter_segment": segment,
+            "q":              q,
+        }),
     )
 
 
