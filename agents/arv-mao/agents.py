@@ -1,6 +1,7 @@
 """
 Claude API integration for the ARV/MAO agent.
-Sends normalized comp data to Claude and parses the returned JSON analysis.
+Returns ARV estimates ONLY — MAO and repair cost are computed in Python
+by main.py and repair_estimate.py, not by the model.
 """
 
 import json
@@ -11,40 +12,30 @@ import anthropic
 _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 _MODEL  = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
-# System prompt verbatim from master-context-v1.4.md § 9.2
 _SYSTEM_PROMPT = """\
-You are a real estate deal analyst. Given a set of comparable sales from ATTOM, \
-calculate the ARV and MAO.
+You are a real estate comparables analyst. Given a subject property and a \
+set of recent comparable sales from ATTOM, calculate ARV estimates.
 
 ARV Methodology:
 - Weight closest and most recent comps most heavily
-- Adjust for sqft differences (use price/sqft of comps)
-- Output Low, Mid, High ARV estimates
+- Adjust for square footage differences using price/sqft of comps
+- Output Low, Mid, and High ARV estimates
 
-MAO Formula: (ARV_mid x 0.70) - repair_estimate - 10000
+Return ONLY a JSON object with these exact keys:
+{"arv_low": 0, "arv_mid": 0, "arv_high": 0, "confidence": "high|medium|low", \
+"comps_used": 0, "notes": "brief explanation of comp selection and adjustments"}
 
-Return ONLY a JSON object:
-{"arv_low": 0, "arv_mid": 0, "arv_high": 0, "confidence": "high/medium/low", \
-"mao": 0, "comps_used": 0, "notes": "brief explanation"}
-
-No preamble, no markdown, no extra text."""
+No preamble, no markdown, no extra text. Do not include MAO, repair cost, \
+or any offer price — those are computed separately."""
 
 
-def analyze_comps(
-    subject: dict,
-    comps: list[dict],
-    repair_estimate: float,
-) -> dict:
+def analyze_comps(subject: dict, comps: list[dict]) -> dict:
     """
-    Send subject property + comps to Claude; return parsed ARV/MAO dict.
+    Send subject property + comps to Claude; return parsed ARV dict.
     Raises ValueError if Claude's response is not valid JSON.
     """
     user_message = json.dumps(
-        {
-            "subject_property": subject,
-            "repair_estimate": repair_estimate,
-            "comps": comps,
-        },
+        {"subject_property": subject, "comps": comps},
         indent=2,
     )
 
@@ -56,8 +47,6 @@ def analyze_comps(
     )
 
     raw = response.content[0].text.strip()
-
-    # Strip markdown fences if Claude wraps the JSON despite instructions
     if raw.startswith("```"):
         parts = raw.split("```")
         raw = parts[1].lstrip("json").strip() if len(parts) > 1 else raw
