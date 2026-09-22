@@ -10,7 +10,7 @@ import os
 import anthropic
 
 _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-_MODEL  = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+_MODEL  = os.environ.get("CLAUDE_MODEL_REASONING", "claude-opus-5")
 
 _SYSTEM_PROMPT = """\
 You are a real estate comparables analyst. Given a subject property and a \

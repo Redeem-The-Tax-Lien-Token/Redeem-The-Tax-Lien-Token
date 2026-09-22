@@ -1,6 +1,7 @@
 -- wholesale-brrrr-system: Canonical database schema
 -- Single source of truth. Run once via: python db-bootstrap/migrate.py
--- Tables: leads, outreach_log, lead_scores, deals, buyers, agent_events
+-- Tables: leads, outreach_log, lead_scores, deals, buyers, agent_events,
+--         agent_runs, capital_pool, state_transitions
 
 -- ─── EXTENSIONS ──────────────────────────────────────────────────────────────
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -25,9 +26,18 @@ CREATE TABLE IF NOT EXISTS leads (
     dnc_checked          BOOLEAN NOT NULL DEFAULT FALSE,
     status               TEXT NOT NULL DEFAULT 'new'
                          CHECK (status IN (
-                             'new','traced','contacted',
-                             'hot','warm','cold','dnc',
-                             'under_contract','closed','dead'
+                             -- shared acquisition front end
+                             'new', 'scored', 'skip_traced', 'outreach_active', 'responded',
+                             -- disposition buckets
+                             'hot', 'warm', 'cold', 'dnc',
+                             -- underwriting
+                             'underwriting', 'strategy_selected', 'nurture',
+                             -- offer cycle
+                             'offer_ready', 'offer_sent', 'offer_declined',
+                             -- contract (deal record takes over detail tracking)
+                             'under_contract',
+                             -- utility
+                             'escalate', 'dead'
                          )),
     manual_override_at   TIMESTAMPTZ,
     manual_override_by   TEXT,
@@ -82,10 +92,24 @@ CREATE TABLE IF NOT EXISTS deals (
     offer_sent_at   TIMESTAMPTZ,
     psa_signed_at   TIMESTAMPTZ,
     assignment_fee  NUMERIC(12,2),
-    status          TEXT NOT NULL DEFAULT 'new'
+    status          TEXT NOT NULL DEFAULT 'under_contract'
                     CHECK (status IN (
-                        'new','offer_sent','under_contract',
-                        'assigned','closed','dead'
+                        -- entry
+                        'under_contract',
+                        -- wholesale track
+                        'in_dispo', 'buyer_selected', 'assigned',
+                        'title_open_w', 'clear_to_close_w', 'closed_w', 'fee_received',
+                        -- brrrr track
+                        'due_diligence', 'funding_secured',
+                        'title_open_b', 'clear_to_close_b', 'acquired',
+                        'scope_ready', 'rehab_active', 'rehab_complete', 'rent_ready',
+                        'listed_for_rent', 'leased', 'seasoning',
+                        'refi_applied', 'appraised', 'refinanced', 'stabilized',
+                        'refi_reevaluate', 'hold_as_is', 'sell_retail',
+                        -- pivot
+                        'strategy_switch',
+                        -- utility
+                        'escalate', 'dead'
                     )),
     closed_at       TIMESTAMPTZ,
     notes           TEXT,
@@ -149,7 +173,25 @@ CREATE TABLE IF NOT EXISTS capital_pool (
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ─── TABLE: state_transitions ────────────────────────────────────────────────
+-- Audit log for every lead and deal status change (§4 principle 3).
+-- No status is ever written directly — all changes go through state_machine.py.
+CREATE TABLE IF NOT EXISTS state_transitions (
+    id           SERIAL PRIMARY KEY,
+    entity_type  TEXT NOT NULL CHECK (entity_type IN ('lead', 'deal')),
+    entity_id    INTEGER NOT NULL,
+    from_status  TEXT NOT NULL,
+    to_status    TEXT NOT NULL,
+    actor        TEXT NOT NULL,   -- agent name or 'operator'
+    reason       TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ─── INDEXES ──────────────────────────────────────────────────────────────────
+
+-- state_transitions: debugging and compliance audit
+CREATE INDEX IF NOT EXISTS idx_transitions_entity
+    ON state_transitions(entity_type, entity_id, created_at DESC);
 
 -- leads: pipeline queries, phone lookups, dedup on attom_id
 CREATE INDEX IF NOT EXISTS idx_leads_status      ON leads(status);
@@ -159,9 +201,41 @@ CREATE INDEX IF NOT EXISTS idx_leads_attom_id    ON leads(attom_id);
 CREATE INDEX IF NOT EXISTS idx_leads_created_at  ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_leads_segment     ON leads(segment);
 
--- additive migrations: add columns to existing deployments
+-- additive migrations: add columns / relax constraints on existing deployments
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS segment TEXT;
 ALTER TABLE outreach_log ADD COLUMN IF NOT EXISTS disclosure_version TEXT;
+
+-- v2.1 state machine: replace CHECK constraints with the expanded status lists.
+-- DROP CONSTRAINT IF EXISTS is safe because CREATE TABLE IF NOT EXISTS re-adds
+-- the new constraint on a fresh deployment; the ALTER is only needed for existing DBs.
+DO $$ BEGIN
+    ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_status_check;
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+ALTER TABLE leads ADD CONSTRAINT leads_status_check
+    CHECK (status IN (
+        'new', 'scored', 'skip_traced', 'outreach_active', 'responded',
+        'hot', 'warm', 'cold', 'dnc',
+        'underwriting', 'strategy_selected', 'nurture',
+        'offer_ready', 'offer_sent', 'offer_declined',
+        'under_contract', 'escalate', 'dead'
+    ));
+
+DO $$ BEGIN
+    ALTER TABLE deals DROP CONSTRAINT IF EXISTS deals_status_check;
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+ALTER TABLE deals ADD CONSTRAINT deals_status_check
+    CHECK (status IN (
+        'under_contract',
+        'in_dispo', 'buyer_selected', 'assigned',
+        'title_open_w', 'clear_to_close_w', 'closed_w', 'fee_received',
+        'due_diligence', 'funding_secured',
+        'title_open_b', 'clear_to_close_b', 'acquired',
+        'scope_ready', 'rehab_active', 'rehab_complete', 'rent_ready',
+        'listed_for_rent', 'leased', 'seasoning',
+        'refi_applied', 'appraised', 'refinanced', 'stabilized',
+        'refi_reevaluate', 'hold_as_is', 'sell_retail',
+        'strategy_switch', 'escalate', 'dead'
+    ));
 
 -- outreach_log: per-lead history, inbound reply feed
 CREATE INDEX IF NOT EXISTS idx_outreach_lead_id    ON outreach_log(lead_id);
