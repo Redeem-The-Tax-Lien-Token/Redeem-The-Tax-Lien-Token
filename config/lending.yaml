@@ -1,0 +1,41 @@
+# Lender profiles for acquisition financing and DSCR cash-out refi (§2.3).
+# Each profile has verified_at and source — profiles older than 45 days block
+# BRRRR eligibility (fail closed per §2.3).
+#
+# Update when lender terms change. Document source (lender name, rate sheet URL, date).
+
+meta:
+  max_profile_age_days: 45
+
+# ── Acquisition / hard-money profiles ────────────────────────────────────────
+acquisition_lenders:
+  - id: hm_default
+    label: "Hard Money Default (Indianapolis market estimate)"
+    verified_at: "2026-09-22"
+    source: "CLAUDE.md v2.1 defaults — update with real lender term sheet"
+    ltc_purchase: 0.90              # loan-to-cost on purchase price
+    ltc_rehab: 1.00                 # 100% of rehab draws
+    rate: 0.12                      # annual
+    points: 0.02
+    fixed_fees: 1500
+    min_loan: 50000
+    max_loan: 1500000
+
+# ── DSCR / cash-out refi profiles ────────────────────────────────────────────
+refi_lenders:
+  - id: dscr_default
+    label: "DSCR Refi Default (Indiana market estimate)"
+    verified_at: "2026-09-22"
+    source: "CLAUDE.md v2.1 defaults — update with real lender term sheet"
+    refi_ltv: 0.75
+    rate: 0.0725                    # annual
+    term_years: 30
+    cost_pct: 0.025                 # closing costs as % of loan
+    fixed_fees: 2000
+    min_loan: 75000
+    max_loan: 1500000
+    full_value_seasoning_months: 6
+    min_seasoning_months: 3
+    early_rule: cost_basis_value    # use min(ARV, cost_basis) before full seasoning
+    refi_process_months: 1
+    rent_haircut: 1.0               # some lenders discount market rent; 1.0 = no haircut

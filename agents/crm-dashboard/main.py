@@ -51,12 +51,12 @@ from auth import (                  # noqa: E402
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-AGENT_NAME          = "crm-dashboard"
-SESSION_SECRET_KEY  = os.environ["SESSION_SECRET_KEY"]
-TWILIO_ACCOUNT_SID  = os.environ.get("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN   = os.environ.get("TWILIO_AUTH_TOKEN", "")
-TWILIO_FROM_NUMBER  = os.environ.get("TWILIO_FROM_NUMBER", "")
-INTERNAL_API_KEY    = os.environ.get("INTERNAL_API_KEY", "")
+AGENT_NAME                   = "crm-dashboard"
+SESSION_SECRET_KEY           = os.environ["SESSION_SECRET_KEY"]
+TWILIO_ACCOUNT_SID           = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN            = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_MESSAGING_SERVICE_SID = os.environ.get("TWILIO_MESSAGING_SERVICE_SID", "")
+INTERNAL_API_KEY             = os.environ["INTERNAL_API_KEY"]
 _INDY_TZ            = ZoneInfo("America/Indiana/Indianapolis")
 
 log = logging.getLogger(AGENT_NAME)
@@ -378,7 +378,7 @@ async def lead_sms(
                         (:lid, :msg, 'sms', 'outbound', 'sent', :sid, :from_n, :to_n)
                 """),
                 {"lid": lead_id, "msg": full_msg, "sid": sid,
-                 "from_n": TWILIO_FROM_NUMBER, "to_n": phone},
+                 "from_n": TWILIO_MESSAGING_SERVICE_SID, "to_n": phone},
             )
         flash(request, "SMS sent", "success")
     else:
@@ -557,7 +557,7 @@ async def sms_send_post(
                         (:lid, :msg, 'sms', 'outbound', 'sent', :sid, :from_n, :to_n)
                 """),
                 {"lid": lead_id, "msg": full_msg, "sid": sid,
-                 "from_n": TWILIO_FROM_NUMBER, "to_n": phone},
+                 "from_n": TWILIO_MESSAGING_SERVICE_SID, "to_n": phone},
             )
         flash(request, f"SMS sent to {phone}", "success")
     else:
@@ -646,9 +646,14 @@ def _send_twilio(to: str, message: str) -> str | None:
     if not _twilio:
         log.warning("Twilio not configured — TWILIO_ACCOUNT_SID missing")
         return None
+    if not TWILIO_MESSAGING_SERVICE_SID:
+        log.warning("Twilio not configured — TWILIO_MESSAGING_SERVICE_SID missing")
+        return None
     try:
         msg = _twilio.messages.create(
-            body=message, from_=TWILIO_FROM_NUMBER, to=to
+            body=message,
+            messaging_service_sid=TWILIO_MESSAGING_SERVICE_SID,
+            to=to,
         )
         return msg.sid
     except Exception as exc:

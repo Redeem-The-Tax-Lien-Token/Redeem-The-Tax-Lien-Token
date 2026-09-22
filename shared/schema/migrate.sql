@@ -47,10 +47,11 @@ CREATE TABLE IF NOT EXISTS outreach_log (
                 CHECK (direction IN ('outbound','inbound')),
     status      TEXT NOT NULL DEFAULT 'sent'
                 CHECK (status IN ('sent','delivered','failed','received','undelivered')),
-    twilio_sid  TEXT,
-    from_number TEXT,
-    to_number   TEXT,
-    sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    twilio_sid          TEXT,
+    from_number         TEXT,
+    to_number           TEXT,
+    disclosure_version  TEXT,              -- version string from hb1068_solicitation.txt
+    sent_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ─── TABLE: lead_scores ───────────────────────────────────────────────────────
@@ -121,6 +122,33 @@ CREATE TABLE IF NOT EXISTS agent_events (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ─── TABLE: agent_runs ────────────────────────────────────────────────────────
+-- Observability: every agent run writes one row (§4 principle 9).
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id            SERIAL PRIMARY KEY,
+    agent_name    TEXT NOT NULL,
+    started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at   TIMESTAMPTZ,
+    inputs_hash   TEXT,              -- sha256 of the request payload
+    outputs       JSONB,
+    tokens_used   INTEGER,
+    cost_usd      NUMERIC(10,6),
+    error         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ─── TABLE: capital_pool ──────────────────────────────────────────────────────
+-- Tracks capital availability for BRRRR eligibility decisions (§3 Step 2).
+-- Single row; updated by Agent 0 (Orchestrator) and Agent 15 (Refinance).
+CREATE TABLE IF NOT EXISTS capital_pool (
+    id                    SERIAL PRIMARY KEY,
+    available             NUMERIC(14,2) NOT NULL DEFAULT 0,
+    committed             NUMERIC(14,2) NOT NULL DEFAULT 0,
+    trapped_in_brrrr      NUMERIC(14,2) NOT NULL DEFAULT 0,
+    expected_return_at    TIMESTAMPTZ,
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ─── INDEXES ──────────────────────────────────────────────────────────────────
 
 -- leads: pipeline queries, phone lookups, dedup on attom_id
@@ -131,8 +159,9 @@ CREATE INDEX IF NOT EXISTS idx_leads_attom_id    ON leads(attom_id);
 CREATE INDEX IF NOT EXISTS idx_leads_created_at  ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_leads_segment     ON leads(segment);
 
--- additive migration: add segment column to existing deployments
+-- additive migrations: add columns to existing deployments
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS segment TEXT;
+ALTER TABLE outreach_log ADD COLUMN IF NOT EXISTS disclosure_version TEXT;
 
 -- outreach_log: per-lead history, inbound reply feed
 CREATE INDEX IF NOT EXISTS idx_outreach_lead_id    ON outreach_log(lead_id);

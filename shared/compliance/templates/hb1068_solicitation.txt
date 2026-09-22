@@ -1,0 +1,12 @@
+# version: 0.1-pending-attorney
+# Indiana HB 1068 / IC 32-21-16.5 wholesaler solicitation disclosure.
+# This text must be reviewed and approved by a licensed Indiana attorney before
+# any live outreach. Do NOT send to sellers with version 0.1-pending-attorney
+# unless the operator has acknowledged this is pre-attorney placeholder text.
+#
+# Edit this file ONLY with operator sign-off and attorney review.
+# After approval, bump the version to 1.0 and update CLAUDE.md decision log.
+#
+# DISCLOSURE_TEXT (everything below the dashes; no line breaks in the text):
+---
+IC 32-21-16.5 Notice: The buyer is a real estate investor, not a licensed agent or broker, who intends to assign this contract to a third party. The purchase price may be below market value.

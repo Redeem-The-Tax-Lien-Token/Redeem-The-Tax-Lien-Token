@@ -1,0 +1,80 @@
+# Strategy Decision Engine configuration (§2.2, §2.3, §3).
+# All thresholds here; nothing is hard-coded in Python.
+# verified_at and source fields must be updated when values are researched.
+
+meta:
+  version: "1.0"
+  verified_at: "2026-09-22"
+  source: "CLAUDE.md v2.1 defaults"
+
+# ── Wholesale math (§2.2) ─────────────────────────────────────────────────────
+wholesale:
+  discount_rates:
+    A: 0.75
+    B: 0.75
+    C: 0.65
+    STD: 0.70
+  assignment_fee: 10000
+  min_wholesale_fee: 7500
+
+# ── BRRRR eligibility (§3 Step 2) ────────────────────────────────────────────
+brrrr:
+  enabled: false                    # set true only after capital + lenders confirmed
+  max_concurrent_projects: 1
+  allowed_property_types:
+    - SFR
+    - "2-unit"
+    - "3-unit"
+    - "4-unit"
+  allowed_neighborhood_classes:
+    - B
+    - C
+  max_rehab_tier: HEAVY             # GUT excluded by default
+  min_arv_confidence: medium
+  min_arv_comps: 3
+  min_rent_comps: 2
+  min_rent_confidence: medium
+  min_dscr: 1.25
+  min_monthly_cash_flow: 200        # per door
+  max_cash_left_in: 10000
+  target_cash_left_in: 5000
+  min_rent_ratio: 0.009             # monthly rent / all-in cost
+  reserves_per_property: 10000
+
+# ── Strategy choice (§3 Step 3) ──────────────────────────────────────────────
+choice:
+  brrrr_premium_multiple: 2.0       # BRRRR value must be 2x wholesale value
+  p_close_wholesale: 0.80
+  p_success_brrrr: 0.70
+  opportunity_cost_rate: 0.20
+  capital_lock_years: 5
+  hold_horizon_years: 5
+  cash_flow_discount: 0.70
+
+# ── Offer policy (§3 Step 4 ADR-004) ─────────────────────────────────────────
+offer_policy: highest_eligible      # or: highest_value
+
+# ── Acquisition math inputs ───────────────────────────────────────────────────
+acquisition:
+  buy_closing_pct: 0.02
+  tax_pct: 0.02                     # Indiana circuit-breaker ceiling (non-homestead)
+  insurance_annual: 1600
+  utilities_monthly: 250
+  contingency_pct:
+    LIGHT: 0.15
+    MEDIUM: 0.15
+    HEAVY: 0.20
+    GUT: 0.20
+  rehab_months:
+    LIGHT: 1
+    MEDIUM: 2
+    HEAVY: 4
+    GUT: 5
+  leaseup_months: 1
+
+# ── Operating expenses (§2.3) ─────────────────────────────────────────────────
+opex:
+  vacancy_rate: 0.08
+  maintenance_rate: 0.08
+  capex_rate: 0.07
+  management_rate: 0.10             # always budget mgmt even if self-managing

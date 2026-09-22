@@ -1,0 +1,152 @@
+# SLA configuration — per-state owner agent, SLA hours, escalation path.
+# The Orchestrator (Agent 0) uses this to detect stale deals and escalate.
+
+states:
+
+  # ── Shared front end ────────────────────────────────────────────────────────
+  NEW:
+    owner_agent: list-puller
+    sla_hours: 48
+    escalation: "Score and route or mark dead"
+
+  SCORED:
+    owner_agent: list-puller
+    sla_hours: 24
+    escalation: "Skip-trace or mark cold"
+
+  SKIP_TRACED:
+    owner_agent: skip-tracer
+    sla_hours: 24
+    escalation: "Trigger outreach or mark cold"
+
+  OUTREACH_ACTIVE:
+    owner_agent: outreach
+    sla_hours: 168        # 7 days (3-touch cadence runs over this window)
+    escalation: "Cadence complete — move to cold if no response"
+
+  RESPONDED:
+    owner_agent: intake
+    sla_hours: 4
+    escalation: "Classify and route to HOT/WARM/COLD/DNC"
+
+  HOT:
+    owner_agent: underwriter
+    sla_hours: 24
+    escalation: "Run underwriting or escalate to operator"
+
+  UNDERWRITING:
+    owner_agent: underwriter
+    sla_hours: 12
+    escalation: "Complete strategy decision or escalate"
+
+  STRATEGY_SELECTED:
+    owner_agent: offer-agent
+    sla_hours: 24
+    escalation: "Build Gate A packet"
+
+  OFFER_READY:
+    owner_agent: orchestrator
+    sla_hours: 0          # gate — no timeout; escalate before unavailable window
+    escalation: "Gate A — operator approval required"
+
+  OFFER_SENT:
+    owner_agent: offer-agent
+    sla_hours: 72
+    escalation: "Follow up or mark declined"
+
+  # ── Wholesale track ─────────────────────────────────────────────────────────
+  UNDER_CONTRACT_W:
+    owner_agent: deal-marketing
+    sla_hours: 4
+    escalation: "Begin dispo immediately"
+
+  IN_DISPO:
+    owner_agent: deal-marketing
+    sla_hours: 120        # 5 days
+    escalation: "No buyer found — check inspection window, consider price drop"
+
+  BUYER_SELECTED:
+    owner_agent: orchestrator
+    sla_hours: 0
+    escalation: "Gate B — operator approval required"
+
+  ASSIGNED:
+    owner_agent: dispo-coordinator
+    sla_hours: 48
+    escalation: "Title opening delayed — escalate"
+
+  TITLE_OPEN:
+    owner_agent: dispo-coordinator
+    sla_hours: 168
+    escalation: "Title issues — escalate to operator"
+
+  CLEAR_TO_CLOSE_W:
+    owner_agent: dispo-coordinator
+    sla_hours: 48
+    escalation: "Closing delayed — escalate"
+
+  CLOSED_W:
+    owner_agent: dispo-coordinator
+    sla_hours: 24
+    escalation: "Confirm fee receipt"
+
+  # ── BRRRR track ─────────────────────────────────────────────────────────────
+  UNDER_CONTRACT_B:
+    owner_agent: acquisition-agent
+    sla_hours: 4
+    escalation: "Begin due diligence immediately"
+
+  DUE_DILIGENCE:
+    owner_agent: acquisition-agent
+    sla_hours: 120
+    escalation: "DD tasks overdue — check inspection expiry"
+
+  FUNDING_SECURED:
+    owner_agent: acquisition-agent
+    sla_hours: 48
+    escalation: "Title opening delayed"
+
+  ACQUIRED:
+    owner_agent: rehab-manager
+    sla_hours: 48
+    escalation: "Begin scope of work"
+
+  SCOPE_READY:
+    owner_agent: orchestrator
+    sla_hours: 0
+    escalation: "Gate C — operator approval required"
+
+  REHAB_ACTIVE:
+    owner_agent: rehab-manager
+    sla_hours: 336        # 14 days (varies by tier — override per deal)
+    escalation: "Rehab behind schedule — check milestones"
+
+  REHAB_COMPLETE:
+    owner_agent: leasing-agent
+    sla_hours: 48
+    escalation: "List for rent"
+
+  LEASED:
+    owner_agent: refinance-agent
+    sla_hours: 24
+    escalation: "Begin seasoning clock tracking"
+
+  SEASONING:
+    owner_agent: refinance-agent
+    sla_hours: 4320       # 180 days — seasonal hold
+    escalation: "Seasoning clock check"
+
+  REFI_APPLIED:
+    owner_agent: refinance-agent
+    sla_hours: 336
+    escalation: "Lender delayed — follow up"
+
+  APPRAISED:
+    owner_agent: refinance-agent
+    sla_hours: 72
+    escalation: "Review appraisal — Gate B or REFI_REEVALUATE"
+
+  REFINANCED:
+    owner_agent: portfolio-manager
+    sla_hours: 24
+    escalation: "Transfer to portfolio management"
