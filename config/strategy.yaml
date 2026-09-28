@@ -16,6 +16,8 @@ wholesale:
     STD: 0.70
   assignment_fee: 10000
   min_wholesale_fee: 7500
+  min_buyer_count: 3               # active qualified buyers required (zip/price/tier match)
+  min_seller_timeline_days: 21     # minimum days seller will wait (our dispo window)
 
 # ── BRRRR eligibility (§3 Step 2) ────────────────────────────────────────────
 brrrr:

@@ -1,0 +1,15 @@
+{
+  "id": "08_spread_negative_a_class",
+  "description": "A-class but fire-damage repairs eat the entire spread — SPREAD_TOO_THIN",
+  "inputs": {
+    "arv": 120000,
+    "repairs": 85000,
+    "neighborhood_class": "A",
+    "available_buyers": 6,
+    "seller_timeline_days": 45
+  },
+  "expected": {
+    "eligible": false,
+    "reasons": ["SPREAD_TOO_THIN", "FEE_TOO_LOW"]
+  }
+}

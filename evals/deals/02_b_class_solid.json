@@ -1,0 +1,17 @@
+{
+  "id": "02_b_class_solid",
+  "description": "B-class neighborhood, moderate repairs, solid deal at B-class rate",
+  "inputs": {
+    "arv": 175000,
+    "repairs": 25000,
+    "neighborhood_class": "B",
+    "available_buyers": 5,
+    "seller_timeline_days": 30
+  },
+  "expected": {
+    "eligible": true,
+    "offer_price": 96000,
+    "fee_at_offer": 10250,
+    "reasons": []
+  }
+}

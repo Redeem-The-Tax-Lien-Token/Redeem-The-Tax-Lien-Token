@@ -1,0 +1,17 @@
+{
+  "id": "03_c_class_lower_rate",
+  "description": "C-class neighborhood using 0.65 discount rate — lower offer but still eligible",
+  "inputs": {
+    "arv": 120000,
+    "repairs": 15000,
+    "neighborhood_class": "C",
+    "available_buyers": 4,
+    "seller_timeline_days": 28
+  },
+  "expected": {
+    "eligible": true,
+    "offer_price": 53000,
+    "fee_at_offer": 10000,
+    "reasons": []
+  }
+}

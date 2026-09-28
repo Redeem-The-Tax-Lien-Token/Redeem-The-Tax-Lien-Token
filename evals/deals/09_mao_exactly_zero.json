@@ -1,0 +1,15 @@
+{
+  "id": "09_mao_exactly_zero",
+  "description": "MAO exactly $0 — boundary ineligible; spread_ok requires MAO > 0",
+  "inputs": {
+    "arv": 100000,
+    "repairs": 60000,
+    "neighborhood_class": "STD",
+    "available_buyers": 5,
+    "seller_timeline_days": 30
+  },
+  "expected": {
+    "eligible": false,
+    "reasons": ["SPREAD_TOO_THIN"]
+  }
+}

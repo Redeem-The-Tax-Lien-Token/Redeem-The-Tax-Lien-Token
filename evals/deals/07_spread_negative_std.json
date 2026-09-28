@@ -1,0 +1,15 @@
+{
+  "id": "07_spread_negative_std",
+  "description": "STD-class: repairs too high, MAO goes negative — SPREAD_TOO_THIN",
+  "inputs": {
+    "arv": 90000,
+    "repairs": 60000,
+    "neighborhood_class": "STD",
+    "available_buyers": 5,
+    "seller_timeline_days": 30
+  },
+  "expected": {
+    "eligible": false,
+    "reasons": ["SPREAD_TOO_THIN", "FEE_TOO_LOW"]
+  }
+}

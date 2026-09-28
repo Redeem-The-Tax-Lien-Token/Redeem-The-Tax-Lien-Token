@@ -1,0 +1,17 @@
+{
+  "id": "01_a_class_strong",
+  "description": "A-class Indianapolis neighborhood, strong ARV, light repairs, plenty of buyers",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 20000,
+    "neighborhood_class": "A",
+    "available_buyers": 8,
+    "seller_timeline_days": 45
+  },
+  "expected": {
+    "eligible": true,
+    "offer_price": 120000,
+    "fee_at_offer": 10000,
+    "reasons": []
+  }
+}

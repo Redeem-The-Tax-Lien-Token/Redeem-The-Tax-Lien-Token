@@ -1,0 +1,17 @@
+{
+  "id": "04_std_class_medium",
+  "description": "STD-class neighborhood at 0.70 rate, medium repairs",
+  "inputs": {
+    "arv": 160000,
+    "repairs": 30000,
+    "neighborhood_class": "STD",
+    "available_buyers": 5,
+    "seller_timeline_days": 35
+  },
+  "expected": {
+    "eligible": true,
+    "offer_price": 72000,
+    "fee_at_offer": 10000,
+    "reasons": []
+  }
+}
