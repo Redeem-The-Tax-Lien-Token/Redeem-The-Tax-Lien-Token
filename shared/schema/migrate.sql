@@ -570,3 +570,161 @@ CREATE INDEX IF NOT EXISTS idx_deals_scope_ready
     ON deals(status, updated_at DESC)
     WHERE status IN ('scope_ready', 'rehab_active');
 
+
+-- ─── MIGRATION v2.5: Agent 14 (Leasing) · Agent 15 (Refinance) · Agent 16 (Portfolio) ──
+
+-- Leasing columns on deals
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS listed_for_rent_at   TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS leased_at            TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS rent_actual          NUMERIC(10,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS listing_id           TEXT;           -- syndication platform id
+
+-- Refi columns on deals
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS seasoning_start_date DATE;           -- acquisition recorded date
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_applied_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_appraised_at    TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_appraised_value NUMERIC(14,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_closed_at       TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_lender_id       TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_loan_amount     NUMERIC(14,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_rate            NUMERIC(6,4);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_payment_monthly NUMERIC(10,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS cash_left_in         NUMERIC(14,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS dscr_actual          NUMERIC(6,4);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS cash_flow_actual     NUMERIC(10,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS brrrr_scorecard      JSONB;          -- final scorecard snapshot
+
+-- Leases
+CREATE TABLE IF NOT EXISTS leases (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    tenant_name     TEXT NOT NULL,
+    tenant_email    TEXT,
+    tenant_phone    TEXT,
+    unit            TEXT,
+    start_date      DATE NOT NULL,
+    end_date        DATE,
+    rent_monthly    NUMERIC(10,2) NOT NULL,
+    security_deposit NUMERIC(10,2),
+    status          TEXT NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active', 'expired', 'terminated', 'pending')),
+    esign_envelope_id TEXT,
+    move_in_inspection_at TIMESTAMPTZ,
+    move_out_inspection_at TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS leases_set_updated_at ON leases;
+CREATE TRIGGER leases_set_updated_at
+    BEFORE UPDATE ON leases
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_leases_deal_id ON leases(deal_id);
+
+-- Rent payments
+CREATE TABLE IF NOT EXISTS rent_payments (
+    id              SERIAL PRIMARY KEY,
+    lease_id        INTEGER NOT NULL REFERENCES leases(id) ON DELETE CASCADE,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    due_date        DATE NOT NULL,
+    amount_due      NUMERIC(10,2) NOT NULL,
+    amount_paid     NUMERIC(10,2),
+    paid_at         TIMESTAMPTZ,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'paid', 'partial', 'late', 'unpaid')),
+    late_fee        NUMERIC(10,2) DEFAULT 0,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (lease_id, due_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rent_payments_deal_id  ON rent_payments(deal_id);
+CREATE INDEX IF NOT EXISTS idx_rent_payments_status   ON rent_payments(status, due_date);
+
+-- Tenant applications (screening audit trail — no protected characteristics stored)
+CREATE TABLE IF NOT EXISTS tenant_applications (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    applicant_name  TEXT NOT NULL,
+    applied_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    screening_id    TEXT,
+    screening_status TEXT,           -- 'pass' | 'fail' | 'pending' | 'dry_run'
+    decision        TEXT,            -- 'approved' | 'denied' | 'pending'
+    denial_reasons  TEXT[],          -- objective criteria only, never protected characteristics
+    criteria_version TEXT,           -- version of SCREENING_CRITERIA applied
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_applications_deal_id ON tenant_applications(deal_id);
+
+-- Maintenance requests
+CREATE TABLE IF NOT EXISTS maintenance_requests (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    lease_id        INTEGER REFERENCES leases(id),
+    category        TEXT,            -- 'plumbing', 'hvac', 'electrical', 'appliance', 'other'
+    description     TEXT NOT NULL,
+    priority        TEXT NOT NULL DEFAULT 'normal'
+                    CHECK (priority IN ('emergency', 'urgent', 'normal')),
+    status          TEXT NOT NULL DEFAULT 'open'
+                    CHECK (status IN ('open', 'in_progress', 'resolved', 'deferred')),
+    reported_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at     TIMESTAMPTZ,
+    contractor_id   INTEGER REFERENCES contractors(id),
+    cost            NUMERIC(10,2),
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS maint_set_updated_at ON maintenance_requests;
+CREATE TRIGGER maint_set_updated_at
+    BEFORE UPDATE ON maintenance_requests
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_maint_deal_id ON maintenance_requests(deal_id);
+CREATE INDEX IF NOT EXISTS idx_maint_status  ON maintenance_requests(status, priority);
+
+-- Capital pool ledger (tracks available, committed, trapped, recovered capital)
+CREATE TABLE IF NOT EXISTS capital_pool (
+    id              SERIAL PRIMARY KEY,
+    event_type      TEXT NOT NULL,   -- 'committed', 'recovered', 'adjustment', 'initial'
+    deal_id         INTEGER REFERENCES deals(id),
+    amount          NUMERIC(14,2) NOT NULL,  -- positive = added, negative = consumed
+    running_balance NUMERIC(14,2) NOT NULL,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_capital_pool_deal ON capital_pool(deal_id);
+
+-- Refi applications
+CREATE TABLE IF NOT EXISTS refi_applications (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    lender_id       TEXT NOT NULL,
+    application_id  TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'submitted', 'approved', 'declined', 'dry_run')),
+    loan_requested  NUMERIC(14,2),
+    rate_quoted     NUMERIC(6,4),
+    submitted_at    TIMESTAMPTZ,
+    decided_at      TIMESTAMPTZ,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS refi_apps_set_updated_at ON refi_applications;
+CREATE TRIGGER refi_apps_set_updated_at
+    BEFORE UPDATE ON refi_applications
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_refi_apps_deal_id ON refi_applications(deal_id);
+
+-- Indexes for portfolio queries
+CREATE INDEX IF NOT EXISTS idx_deals_leased
+    ON deals(status, updated_at DESC)
+    WHERE status IN ('leased', 'seasoning', 'refi_applied', 'appraised', 'refinanced', 'stabilized');
+

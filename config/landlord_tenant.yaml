@@ -1,0 +1,38 @@
+# Indiana landlord-tenant law deadlines (IC 32-31 et seq.).
+# ATTORNEY REVIEW REQUIRED before going live.
+# Agent 16 (Portfolio Manager) reads this file for notice templates and deadlines.
+# Last reviewed: pending attorney verification.
+
+state: Indiana
+
+security_deposit:
+  max_hold_months: null              # Indiana has no statutory cap on security deposit amount
+  return_days: 45                    # IC 32-31-3-12: return within 45 days of termination
+  itemized_statement_days: 45        # same deadline — include itemized deductions if any
+  interest_required: false           # Indiana does not require interest on deposits
+
+late_rent:
+  grace_period_days: 0               # Indiana has no statutory grace period; use lease terms
+  late_fee_max_pct: null             # No statutory cap; must be reasonable per lease
+
+notices:
+  pay_or_quit_days: 10               # IC 32-31-1-6: 10-day notice to pay or vacate
+  cure_or_quit_days: 10              # 10-day notice to cure lease violation or vacate
+  unconditional_quit_days: 10        # 10-day notice (e.g., repeat violation)
+  month_to_month_termination_days: 30  # IC 32-31-1-1: 30 days for monthly tenancy
+  annual_lease_termination_days: 30    # 30-day notice if lease has no specific end date
+
+habitability:
+  repair_response_days: 14           # Recommended; statute requires "reasonable time"
+  emergency_response_hours: 24       # Emergency repairs (no heat, water, etc.)
+
+entry_notice_hours: 24               # IC 32-31-5-6: 24-hour advance notice for non-emergency entry
+entry_notice_emergency_required: false  # Emergency entry allowed without notice
+
+eviction:
+  filing_after_notice_expires: true  # Can file in small claims / superior court after notice period
+  court_hearing_days_min: 3          # Small claims hearing within 3–20 business days of service
+  sheriff_execution_days: null       # Sheriff coordinates with court order; varies by county
+
+move_in_inspection_required: true    # Best practice; document condition before occupancy
+move_out_inspection_required: true   # Protects against deposit disputes
