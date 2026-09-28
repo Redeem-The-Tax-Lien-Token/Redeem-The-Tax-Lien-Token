@@ -1,0 +1,19 @@
+{
+  "id": "26_ltv_bound_refi",
+  "deal_type": "brrrr",
+  "description": "Very high rent makes CF/DSCR non-binding; LTV cap (75% ARV) is the limit",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 10000,
+    "market_rent": 5000,
+    "rehab_tier": "LIGHT",
+    "available_capital": 500000,
+    "active_projects": 0,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 118000,
+    "eligible": true,
+    "cash_left_in_max": 5000
+  }
+}

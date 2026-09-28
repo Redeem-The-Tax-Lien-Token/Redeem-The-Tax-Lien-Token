@@ -1,0 +1,19 @@
+{
+  "id": "16_b_heavy_rehab",
+  "deal_type": "brrrr",
+  "description": "B-class HEAVY rehab: higher contingency (20%), eligible at lower price",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 50000,
+    "market_rent": 2000,
+    "rehab_tier": "HEAVY",
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 25000,
+    "eligible": true,
+    "cash_left_in_max": 5000
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "22_four_unit_allowed",
+  "deal_type": "brrrr",
+  "description": "4-unit property is in allowed list \u2192 eligible",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 20000,
+    "market_rent": 2000,
+    "rehab_tier": "MEDIUM",
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "4-unit"
+  },
+  "expected": {
+    "max_price": 61000,
+    "eligible": true,
+    "cash_left_in_max": 5000
+  }
+}

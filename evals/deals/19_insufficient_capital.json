@@ -1,0 +1,21 @@
+{
+  "id": "19_insufficient_capital",
+  "deal_type": "brrrr",
+  "description": "Good deal math but available capital is below required reserves",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 20000,
+    "market_rent": 2000,
+    "rehab_tier": "MEDIUM",
+    "available_capital": 5000,
+    "active_projects": 0,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 61000,
+    "eligible": false,
+    "reasons": [
+      "CAPITAL_INSUFFICIENT"
+    ]
+  }
+}
