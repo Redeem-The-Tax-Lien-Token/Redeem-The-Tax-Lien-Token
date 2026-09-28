@@ -383,3 +383,190 @@ DROP TRIGGER IF EXISTS buyer_offers_set_updated_at ON buyer_offers;
 CREATE TRIGGER buyer_offers_set_updated_at
     BEFORE UPDATE ON buyer_offers
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ─── MIGRATION v2.4: Agent 12 (Acquisition & Funding) + Agent 13 (Rehab Manager) ──
+
+-- BRRRR acquisition columns on deals
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS dd_complete_at          TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS funding_secured_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_lender_id           TEXT;           -- lending.yaml profile id
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_loan_amount         NUMERIC(14,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_loan_rate           NUMERIC(6,4);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_loan_points         NUMERIC(6,4);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_loan_term_months    INTEGER;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS strategy_switch_reason  TEXT;
+
+-- BRRRR rehab columns on deals
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS scope_approved_at       TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_c_approved_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_c_approved_by      TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS rehab_started_at        TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS rehab_complete_at       TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS total_rehab_budget      NUMERIC(14,2);  -- Gate C approved budget
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS rehab_spent             NUMERIC(14,2) DEFAULT 0;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS selected_contractor_id  INTEGER;        -- FK added after contractors table
+
+-- Due diligence checklist items (one per check per deal)
+CREATE TABLE IF NOT EXISTS due_diligence (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    check_name      TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'pass', 'fail', 'waived')),
+    notes           TEXT,
+    checked_at      TIMESTAMPTZ,
+    checked_by      TEXT,           -- 'agent_12' or operator user id
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, check_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dd_deal_id ON due_diligence(deal_id);
+
+-- Contractors registry
+CREATE TABLE IF NOT EXISTS contractors (
+    id              SERIAL PRIMARY KEY,
+    name            TEXT NOT NULL,
+    phone           TEXT,
+    email           TEXT,
+    license_number  TEXT,
+    license_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    insurance_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    insurance_expiry DATE,
+    specialty       TEXT[],         -- e.g. ARRAY['general','roofing']
+    tier_rating     TEXT CHECK (tier_rating IN ('preferred', 'approved', 'probation')),
+    notes           TEXT,
+    active          BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS contractors_set_updated_at ON contractors;
+CREATE TRIGGER contractors_set_updated_at
+    BEFORE UPDATE ON contractors
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Scope of work (header)
+CREATE TABLE IF NOT EXISTS scope_of_work (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    version         INTEGER NOT NULL DEFAULT 1,
+    status          TEXT NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft', 'pending_gate_c', 'approved', 'superseded')),
+    total_budget    NUMERIC(14,2),
+    approved_at     TIMESTAMPTZ,
+    approved_by     TEXT,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, version)
+);
+
+DROP TRIGGER IF EXISTS sow_set_updated_at ON scope_of_work;
+CREATE TRIGGER sow_set_updated_at
+    BEFORE UPDATE ON scope_of_work
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Scope line items
+CREATE TABLE IF NOT EXISTS scope_items (
+    id              SERIAL PRIMARY KEY,
+    sow_id          INTEGER NOT NULL REFERENCES scope_of_work(id) ON DELETE CASCADE,
+    category        TEXT NOT NULL,  -- e.g. 'roof', 'hvac', 'flooring', 'paint'
+    description     TEXT NOT NULL,
+    quantity        NUMERIC(10,2),
+    unit            TEXT,
+    unit_cost       NUMERIC(12,2),
+    total_cost      NUMERIC(14,2) NOT NULL,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scope_items_sow ON scope_items(sow_id);
+
+-- Contractor bids per scope
+CREATE TABLE IF NOT EXISTS contractor_bids (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    sow_id          INTEGER REFERENCES scope_of_work(id),
+    contractor_id   INTEGER NOT NULL REFERENCES contractors(id),
+    bid_amount      NUMERIC(14,2) NOT NULL,
+    timeline_days   INTEGER,
+    notes           TEXT,
+    status          TEXT NOT NULL DEFAULT 'received'
+                    CHECK (status IN ('received', 'qualified', 'disqualified', 'selected', 'rejected')),
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, contractor_id)
+);
+
+DROP TRIGGER IF EXISTS bids_set_updated_at ON contractor_bids;
+CREATE TRIGGER bids_set_updated_at
+    BEFORE UPDATE ON contractor_bids
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_bids_deal_id ON contractor_bids(deal_id);
+
+-- Draw requests (each one triggers Gate B for operator approval before funds released)
+CREATE TABLE IF NOT EXISTS draw_requests (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    draw_number     INTEGER NOT NULL,
+    contractor_id   INTEGER REFERENCES contractors(id),
+    amount_requested NUMERIC(14,2) NOT NULL,
+    amount_approved  NUMERIC(14,2),
+    description      TEXT,
+    milestone_notes  TEXT,
+    status           TEXT NOT NULL DEFAULT 'pending_gate_b'
+                     CHECK (status IN ('pending_gate_b', 'approved', 'released', 'rejected')),
+    gate_b_approved_at TIMESTAMPTZ,
+    gate_b_approved_by TEXT,
+    released_at      TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, draw_number)
+);
+
+DROP TRIGGER IF EXISTS draws_set_updated_at ON draw_requests;
+CREATE TRIGGER draws_set_updated_at
+    BEFORE UPDATE ON draw_requests
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_draws_deal_id    ON draw_requests(deal_id);
+CREATE INDEX IF NOT EXISTS idx_draws_status     ON draw_requests(status);
+
+-- Change orders (over-budget changes require Gate C re-approval)
+CREATE TABLE IF NOT EXISTS change_orders (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    sow_id          INTEGER REFERENCES scope_of_work(id),
+    co_number       INTEGER NOT NULL,
+    reason          TEXT NOT NULL,
+    amount_delta    NUMERIC(14,2) NOT NULL,  -- positive = cost increase
+    new_total       NUMERIC(14,2) NOT NULL,
+    requires_gate_c BOOLEAN NOT NULL DEFAULT FALSE,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'approved', 'rejected')),
+    gate_c_approved_at TIMESTAMPTZ,
+    gate_c_approved_by TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, co_number)
+);
+
+DROP TRIGGER IF EXISTS co_set_updated_at ON change_orders;
+CREATE TRIGGER co_set_updated_at
+    BEFORE UPDATE ON change_orders
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_co_deal_id ON change_orders(deal_id);
+CREATE INDEX IF NOT EXISTS idx_co_status  ON change_orders(status);
+
+-- Add FK from deals to contractors (after table exists)
+ALTER TABLE deals ADD CONSTRAINT IF NOT EXISTS fk_deals_contractor
+    FOREIGN KEY (selected_contractor_id) REFERENCES contractors(id);
+
+-- Gate C queue index
+CREATE INDEX IF NOT EXISTS idx_deals_scope_ready
+    ON deals(status, updated_at DESC)
+    WHERE status IN ('scope_ready', 'rehab_active');
+
