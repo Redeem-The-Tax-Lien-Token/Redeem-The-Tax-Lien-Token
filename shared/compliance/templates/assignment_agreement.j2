@@ -1,0 +1,80 @@
+{# Assignment of Purchase and Sale Agreement
+   Agent 11 renders this template. Disclosures are injected by Python code only.
+   Template version: 0.1-pending-attorney
+#}
+ASSIGNMENT OF PURCHASE AND SALE AGREEMENT
+
+Date: {{ execution_date }}
+
+{# ── Assignment disclosure — inserted by assignment_builder.py, never LLM ── #}
+{{ assignment_disclosure }}
+{# ────────────────────────────────────────────────────────────────────────── #}
+
+1. PARTIES
+
+   Assignor (Seller of Assignment): {{ assignor_name }}
+   Assignee (Buyer of Assignment):  {{ assignee_name }}
+
+2. UNDERLYING CONTRACT
+
+   Assignor is the Buyer under a Purchase and Sale Agreement ("PSA") dated
+   {{ psa_date }}, for the property located at:
+
+   {{ property_address }}, {{ property_city }}, {{ property_state }} {{ property_zip }}
+
+   Seller under the PSA: {{ seller_name }}
+   PSA Purchase Price:   {{ psa_price_formatted }}
+
+3. ASSIGNMENT
+
+   Assignor hereby assigns, transfers, and conveys to Assignee all of
+   Assignor's rights, title, interest, and obligations under the PSA,
+   including the right to purchase the property on the terms set forth therein.
+   Assignee accepts this assignment and assumes all of Assignor's obligations
+   under the PSA from and after the date hereof.
+
+4. ASSIGNMENT FEE
+
+   In consideration for this assignment, Assignee shall pay Assignor an
+   assignment fee of {{ assignment_fee_formatted }} ({{ assignment_fee_words }}),
+   payable as follows:
+
+   Earnest Money Deposit (non-refundable on assignment):
+   {{ assignment_emd_formatted }} due within 2 business days of execution.
+
+   Balance of {{ assignment_fee_balance_formatted }} due at closing of the PSA.
+
+5. CLOSING
+
+   Closing of the PSA shall occur on or before {{ closing_date }}. Time is of
+   the essence. Assignee shall comply with all closing requirements under the PSA.
+
+6. REPRESENTATIONS OF ASSIGNEE
+
+   Assignee represents that: (a) Assignee has reviewed the PSA and accepts all
+   of its terms; (b) Assignee has conducted or waives all due diligence;
+   (c) Assignee has sufficient funds to close; (d) Assignee is not purchasing
+   as a principal residence unless disclosed in writing.
+
+7. ENTIRE AGREEMENT
+
+   This Agreement constitutes the entire agreement between the parties regarding
+   this assignment and supersedes all prior negotiations. Amendments require
+   written consent of both parties.
+
+8. GOVERNING LAW
+
+   This Agreement shall be governed by the laws of the State of Indiana.
+
+ASSIGNOR SIGNATURE: _________________________  Date: ___________
+
+Printed Name:       _________________________
+
+On behalf of:       {{ assignor_name }}
+
+ASSIGNEE SIGNATURE: _________________________  Date: ___________
+
+Printed Name:       _________________________
+
+{# ── disclosure version stored for audit ── #}
+{# disclosure_version: {{ disclosure_version }} #}

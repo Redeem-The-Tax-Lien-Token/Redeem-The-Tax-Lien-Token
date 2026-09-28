@@ -341,3 +341,45 @@ ALTER TABLE deals ADD COLUMN IF NOT EXISTS underwriting_snapshot   JSONB;  -- fr
 CREATE INDEX IF NOT EXISTS idx_leads_offer_ready
     ON leads(status, updated_at DESC)
     WHERE status IN ('offer_ready', 'strategy_switch');
+
+-- ─── MIGRATION v2.3: Agent 11 (Dispo & Closing Coordinator) ──────────────────
+
+-- Track which buyer was selected for assignment
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS selected_buyer_id         INTEGER REFERENCES buyers(id);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS assignment_fee_actual     NUMERIC(12,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS assignment_esign_id       TEXT;   -- assignment agreement envelope
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS title_company             TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_b_approved_at        TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_b_approved_by        TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS closing_confirmed_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS fee_received_at           TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS fee_received_amount       NUMERIC(12,2);
+
+-- Buyer interest / offers per deal — one row per buyer who responds to a dispo blast
+CREATE TABLE IF NOT EXISTS buyer_offers (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    buyer_id        INTEGER NOT NULL REFERENCES buyers(id) ON DELETE CASCADE,
+    offer_amount    NUMERIC(12,2) NOT NULL,
+    pof_confirmed   BOOLEAN NOT NULL DEFAULT FALSE,   -- proof of funds verified
+    timeline_days   INTEGER,                          -- buyer's stated close timeline
+    emd_capacity    NUMERIC(12,2),                    -- EMD buyer can provide
+    notes           TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'qualified', 'disqualified', 'selected', 'declined')),
+    ranked          INTEGER,                          -- 1 = top choice after qualification
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, buyer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_buyer_offers_deal_id  ON buyer_offers(deal_id);
+CREATE INDEX IF NOT EXISTS idx_buyer_offers_status   ON buyer_offers(status);
+CREATE INDEX IF NOT EXISTS idx_deals_buyer_selected
+    ON deals(status, updated_at DESC)
+    WHERE status = 'buyer_selected';
+
+DROP TRIGGER IF EXISTS buyer_offers_set_updated_at ON buyer_offers;
+CREATE TRIGGER buyer_offers_set_updated_at
+    BEFORE UPDATE ON buyer_offers
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
