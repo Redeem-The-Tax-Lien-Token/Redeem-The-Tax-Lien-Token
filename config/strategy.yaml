@@ -80,3 +80,23 @@ opex:
   maintenance_rate: 0.08
   capex_rate: 0.07
   management_rate: 0.10             # always budget mgmt even if self-managing
+
+# ── Contract / offer settings (Agent 8) ──────────────────────────────────────
+contract:
+  entity_name: "Redeem Real Estate LLC and/or assigns"
+  emd_amount: 1000                    # earnest money deposit in USD
+
+  # Inspection / due-diligence period by strategy (calendar days)
+  inspection_period_days:
+    wholesale: 10
+    brrrr: 14
+
+  # Closing window from execution date (calendar days) — sized for each strategy
+  closing_window_days:
+    wholesale: 30
+    brrrr: 45
+
+  # Minimum buffer from closing date to next unavailable window (days)
+  # Agent 8 extends the closing window if the computed date would land inside
+  # an unavailable window with fewer than this many days of buffer.
+  min_available_buffer_days: 3

@@ -1,0 +1,4 @@
+version: 0.1-pending-attorney
+---
+NOTICE REQUIRED BY INDIANA LAW (IC 32-21-16.5):
+The buyer identified in this Purchase and Sale Agreement is a real estate investor, not a licensed real estate agent or broker. The buyer intends to assign this contract or the buyer's equitable interest to a third party. The purchase price may be below the current market value of the property.

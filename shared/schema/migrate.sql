@@ -322,3 +322,22 @@ DROP TRIGGER IF EXISTS score_sync_dnc ON lead_scores;
 CREATE TRIGGER score_sync_dnc
     AFTER INSERT ON lead_scores
     FOR EACH ROW EXECUTE FUNCTION sync_dnc_to_lead();
+
+-- ─── MIGRATION v2.2: Agent 8 (Offer & Contract) columns ──────────────────────
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS strategy                TEXT
+    CHECK (strategy IN ('wholesale', 'brrrr'));
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS inspection_period_days  INTEGER;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS closing_date            DATE;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS emd_amount              NUMERIC(12,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS fallback_fee            NUMERIC(12,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS fallback_flag           TEXT;   -- e.g. 'NO_EXIT_IF_FUNDING_FAILS'
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS esign_envelope_id       TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS psa_url                 TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_a_approved_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_a_approved_by      TEXT;   -- 'operator' or user id
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS underwriting_snapshot   JSONB;  -- frozen WholesaleCase + BrrrrCase at Gate A
+
+-- Index for Gate A queue query
+CREATE INDEX IF NOT EXISTS idx_leads_offer_ready
+    ON leads(status, updated_at DESC)
+    WHERE status IN ('offer_ready', 'strategy_switch');
