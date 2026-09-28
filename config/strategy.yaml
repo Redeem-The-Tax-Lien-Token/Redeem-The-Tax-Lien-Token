@@ -21,7 +21,7 @@ wholesale:
 
 # ── BRRRR eligibility (§3 Step 2) ────────────────────────────────────────────
 brrrr:
-  enabled: false                    # set true only after capital + lenders confirmed
+  enabled: true                     # enabled — capital confirmed, lenders verified, step 13 complete
   max_concurrent_projects: 1
   allowed_property_types:
     - SFR
