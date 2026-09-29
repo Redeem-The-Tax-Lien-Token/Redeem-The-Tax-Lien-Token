@@ -1,0 +1,15 @@
+{
+  "id": "10_no_buyers",
+  "description": "Strong spread but zero qualified buyers in the zip/price band — LOW_BUYER_DEMAND",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 20000,
+    "neighborhood_class": "A",
+    "available_buyers": 0,
+    "seller_timeline_days": 45
+  },
+  "expected": {
+    "eligible": false,
+    "reasons": ["LOW_BUYER_DEMAND"]
+  }
+}

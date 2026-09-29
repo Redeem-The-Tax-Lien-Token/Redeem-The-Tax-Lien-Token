@@ -1,0 +1,20 @@
+{
+  "id": "13_b_medium_standard",
+  "deal_type": "brrrr",
+  "description": "B-class MEDIUM rehab: solid rent, full seasoning \u2192 eligible at max price",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 20000,
+    "market_rent": 2000,
+    "rehab_tier": "MEDIUM",
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 61000,
+    "eligible": true,
+    "cash_left_in_max": 5000,
+    "dscr_min": 1.25
+  }
+}

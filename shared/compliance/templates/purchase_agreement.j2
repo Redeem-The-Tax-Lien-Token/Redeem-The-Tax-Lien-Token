@@ -1,0 +1,104 @@
+{# Indiana Residential Purchase and Sale Agreement
+   Agent 8 renders this template. Disclosures are injected by Python code only
+   — the LLM never generates, modifies, or omits the disclosure block.
+   Template version: 0.1-pending-attorney
+   All blanks marked {{ }} must be filled before sending.
+#}
+PURCHASE AND SALE AGREEMENT
+
+Date: {{ execution_date }}
+
+{# ── HB 1068 PSA disclosure — inserted by contract_builder.py, never LLM ── #}
+{{ psa_disclosure }}
+{# ─────────────────────────────────────────────────────────────────────────── #}
+
+1. PARTIES
+
+   Buyer:  {{ buyer_name }}
+   Seller: {{ seller_name }}
+
+2. PROPERTY
+
+   Address: {{ property_address }}, {{ property_city }}, {{ property_state }} {{ property_zip }}
+   Legal Description: To be provided by title company at closing.
+   Parcel/ATTOM ID: {{ attom_id | default('TBD') }}
+
+3. PURCHASE PRICE
+
+   The total purchase price is {{ purchase_price_formatted }} ({{ purchase_price_words }}).
+
+   Earnest Money Deposit (EMD): {{ emd_formatted }} to be delivered within 3 business days
+   of execution to an escrow account designated by the title company.
+
+4. FINANCING
+
+   This is an ALL-CASH offer. Buyer's obligation is not contingent on financing.
+
+5. INSPECTION AND DUE DILIGENCE
+
+   Buyer shall have {{ inspection_period_days }} calendar days from the execution date
+   ("Inspection Period") to conduct any and all due diligence, including but not limited
+   to physical inspection, title review, and financial analysis. During the Inspection
+   Period, Buyer may terminate this Agreement for any reason by written notice to Seller,
+   and the EMD shall be returned to Buyer in full. Failure to terminate in writing by
+   the end of the Inspection Period constitutes Buyer's acceptance of the property.
+
+6. CLOSING
+
+   Closing shall occur on or before {{ closing_date }} at a title company mutually
+   agreed upon by the parties. Time is of the essence.
+
+7. ASSIGNABILITY
+
+   BUYER MAY ASSIGN THIS AGREEMENT AND ALL OF BUYER'S RIGHTS AND OBLIGATIONS HEREUNDER
+   TO ANY PERSON OR ENTITY WITHOUT SELLER'S CONSENT. Buyer's assignee shall assume all
+   of Buyer's obligations under this Agreement upon assignment, and Buyer shall be
+   released from further liability. The assignability of this contract is a material
+   term relied upon by Buyer.
+
+8. TITLE
+
+   Seller shall convey marketable fee simple title by General Warranty Deed, free and
+   clear of all liens and encumbrances except current year real estate taxes (prorated
+   to closing), utility easements of record, and restrictions of record that do not
+   materially impair the use of the property.
+
+9. POSSESSION
+
+   Seller shall deliver possession of the property at closing in its current "AS-IS"
+   condition, free of all personal property not included in this sale, and broom clean.
+
+10. AS-IS SALE
+
+    Buyer accepts the property in its AS-IS, WHERE-IS condition. Seller makes no
+    warranties, express or implied, as to the condition of the property, its fitness
+    for any particular purpose, or compliance with any law or code.
+
+11. DEFAULT
+
+    If Seller defaults, Buyer may pursue any remedy available at law or equity.
+    If Buyer defaults, Seller's sole remedy shall be retention of the EMD as
+    liquidated damages.
+
+12. ENTIRE AGREEMENT
+
+    This Agreement constitutes the entire agreement between the parties and supersedes
+    all prior negotiations, representations, and agreements. This Agreement may be
+    amended only by a written instrument signed by both parties.
+
+13. GOVERNING LAW
+
+    This Agreement shall be governed by the laws of the State of Indiana.
+
+SELLER SIGNATURE: _________________________  Date: ___________
+
+Printed Name:     _________________________
+
+BUYER SIGNATURE:  _________________________  Date: ___________
+
+Printed Name:     _________________________
+
+On behalf of:     {{ buyer_name }}
+
+{# ── disclosure version stored for audit ── #}
+{# disclosure_version: {{ disclosure_version }} #}

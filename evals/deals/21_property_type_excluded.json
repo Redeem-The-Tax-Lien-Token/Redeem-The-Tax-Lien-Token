@@ -1,0 +1,21 @@
+{
+  "id": "21_property_type_excluded",
+  "deal_type": "brrrr",
+  "description": "Commercial property excluded from BRRRR allowed types \u2192 PROPERTY_TYPE_EXCLUDED",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 20000,
+    "market_rent": 2000,
+    "rehab_tier": "MEDIUM",
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "commercial"
+  },
+  "expected": {
+    "max_price": 61000,
+    "eligible": false,
+    "reasons": [
+      "PROPERTY_TYPE_EXCLUDED"
+    ]
+  }
+}

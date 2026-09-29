@@ -51,12 +51,12 @@ from auth import (                  # noqa: E402
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-AGENT_NAME          = "crm-dashboard"
-SESSION_SECRET_KEY  = os.environ["SESSION_SECRET_KEY"]
-TWILIO_ACCOUNT_SID  = os.environ.get("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN   = os.environ.get("TWILIO_AUTH_TOKEN", "")
-TWILIO_FROM_NUMBER  = os.environ.get("TWILIO_FROM_NUMBER", "")
-INTERNAL_API_KEY    = os.environ.get("INTERNAL_API_KEY", "")
+AGENT_NAME                   = "crm-dashboard"
+SESSION_SECRET_KEY           = os.environ["SESSION_SECRET_KEY"]
+TWILIO_ACCOUNT_SID           = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN            = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_MESSAGING_SERVICE_SID = os.environ.get("TWILIO_MESSAGING_SERVICE_SID", "")
+INTERNAL_API_KEY             = os.environ["INTERNAL_API_KEY"]
 _INDY_TZ            = ZoneInfo("America/Indiana/Indianapolis")
 
 log = logging.getLogger(AGENT_NAME)
@@ -162,7 +162,7 @@ def logout(request: Request):
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-def pipeline(request: Request, status: str = "", q: str = ""):
+def pipeline(request: Request, status: str = "", q: str = "", segment: str = ""):
     if not is_authenticated(request):
         return _login_redirect()
     with session_ctx() as db:
@@ -172,12 +172,25 @@ def pipeline(request: Request, status: str = "", q: str = ""):
         ).fetchall()
         counts = {r[0]: r[1] for r in counts_rows}
 
+        # Distinct segments with counts for the segment filter bar
+        seg_rows = db.execute(
+            text("""
+                SELECT segment, COUNT(*) FROM leads
+                WHERE segment IS NOT NULL AND segment != ''
+                GROUP BY segment ORDER BY segment
+            """)
+        ).fetchall()
+        segments = [{"name": r[0], "count": r[1]} for r in seg_rows]
+
         # Leads query with optional filters
         where_clauses = []
         params: dict = {}
         if status:
             where_clauses.append("status = :status")
             params["status"] = status
+        if segment:
+            where_clauses.append("segment = :segment")
+            params["segment"] = segment
         if q:
             where_clauses.append(
                 "(owner_name ILIKE :q OR address ILIKE :q OR phone ILIKE :q OR zip ILIKE :q)"
@@ -188,7 +201,8 @@ def pipeline(request: Request, status: str = "", q: str = ""):
         leads = db.execute(
             text(f"""
                 SELECT id, address, city, zip, owner_name, phone,
-                       status, motivation_type, equity_pct, created_at, updated_at
+                       status, motivation_type, equity_pct, segment,
+                       created_at, updated_at
                 FROM   leads
                 {where}
                 ORDER BY
@@ -214,8 +228,14 @@ def pipeline(request: Request, status: str = "", q: str = ""):
 
     return templates.TemplateResponse(
         "pipeline.html",
-        _ctx(request, {"leads": leads, "counts": counts,
-                        "filter_status": status, "q": q}),
+        _ctx(request, {
+            "leads":          leads,
+            "counts":         counts,
+            "segments":       segments,
+            "filter_status":  status,
+            "filter_segment": segment,
+            "q":              q,
+        }),
     )
 
 
@@ -358,7 +378,7 @@ async def lead_sms(
                         (:lid, :msg, 'sms', 'outbound', 'sent', :sid, :from_n, :to_n)
                 """),
                 {"lid": lead_id, "msg": full_msg, "sid": sid,
-                 "from_n": TWILIO_FROM_NUMBER, "to_n": phone},
+                 "from_n": TWILIO_MESSAGING_SERVICE_SID, "to_n": phone},
             )
         flash(request, "SMS sent", "success")
     else:
@@ -537,7 +557,7 @@ async def sms_send_post(
                         (:lid, :msg, 'sms', 'outbound', 'sent', :sid, :from_n, :to_n)
                 """),
                 {"lid": lead_id, "msg": full_msg, "sid": sid,
-                 "from_n": TWILIO_FROM_NUMBER, "to_n": phone},
+                 "from_n": TWILIO_MESSAGING_SERVICE_SID, "to_n": phone},
             )
         flash(request, f"SMS sent to {phone}", "success")
     else:
@@ -626,9 +646,14 @@ def _send_twilio(to: str, message: str) -> str | None:
     if not _twilio:
         log.warning("Twilio not configured — TWILIO_ACCOUNT_SID missing")
         return None
+    if not TWILIO_MESSAGING_SERVICE_SID:
+        log.warning("Twilio not configured — TWILIO_MESSAGING_SERVICE_SID missing")
+        return None
     try:
         msg = _twilio.messages.create(
-            body=message, from_=TWILIO_FROM_NUMBER, to=to
+            body=message,
+            messaging_service_sid=TWILIO_MESSAGING_SERVICE_SID,
+            to=to,
         )
         return msg.sid
     except Exception as exc:

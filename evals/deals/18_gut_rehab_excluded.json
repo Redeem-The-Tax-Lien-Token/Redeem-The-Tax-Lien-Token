@@ -1,0 +1,21 @@
+{
+  "id": "18_gut_rehab_excluded",
+  "deal_type": "brrrr",
+  "description": "GUT rehab exceeds max_rehab_tier=HEAVY \u2192 REHAB_TIER_TOO_HIGH",
+  "inputs": {
+    "arv": 180000,
+    "repairs": 30000,
+    "market_rent": 1900,
+    "rehab_tier": "GUT",
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 44000,
+    "eligible": false,
+    "reasons": [
+      "REHAB_TIER_TOO_HIGH"
+    ]
+  }
+}

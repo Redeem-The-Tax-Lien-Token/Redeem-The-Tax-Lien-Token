@@ -1,0 +1,30 @@
+{
+  "_note": "PII-scrubbed Tracerfy API response fixture for contract tests.",
+  "_instructions": "Replace this fixture with a real scrubbed sample from tracerfy_verify_mapping.py before running contract tests against live data.",
+  "_pii_scrubbed": true,
+
+  "trace_response": {
+    "status": "found",
+    "deceased": false,
+    "litigator_flag": false,
+    "phones": [
+      {"number": "3175550001", "rank": 1, "type": "mobile", "is_active": true},
+      {"number": "3175550002", "rank": 2, "type": "landline", "is_active": false}
+    ],
+    "emails": [
+      {"address": "owner@example.com", "rank": 1}
+    ],
+    "owner": {
+      "first_name": "REDACTED",
+      "last_name": "REDACTED",
+      "age": 0
+    }
+  },
+
+  "dnc_scrub_response": {
+    "results": [
+      {"phone": "3175550001", "is_dnc": false, "litigator_flag": false},
+      {"phone": "3175550002", "is_dnc": true,  "litigator_flag": false}
+    ]
+  }
+}

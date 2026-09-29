@@ -9,7 +9,7 @@ import os
 import anthropic
 
 _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-_MODEL  = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+_MODEL  = os.environ.get("CLAUDE_MODEL_FAST", "claude-sonnet-5")
 
 # Verbatim from master-context-v1.4.md § 9.1
 _SYSTEM_PROMPT = """\

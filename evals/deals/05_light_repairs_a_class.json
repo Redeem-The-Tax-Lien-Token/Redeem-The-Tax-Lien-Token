@@ -1,0 +1,17 @@
+{
+  "id": "05_light_repairs_a_class",
+  "description": "A-class with very light cosmetic repairs — highest fee scenario",
+  "inputs": {
+    "arv": 250000,
+    "repairs": 5000,
+    "neighborhood_class": "A",
+    "available_buyers": 10,
+    "seller_timeline_days": 60
+  },
+  "expected": {
+    "eligible": true,
+    "offer_price": 172000,
+    "fee_at_offer": 10500,
+    "reasons": []
+  }
+}

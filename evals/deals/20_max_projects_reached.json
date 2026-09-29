@@ -1,0 +1,21 @@
+{
+  "id": "20_max_projects_reached",
+  "deal_type": "brrrr",
+  "description": "Max concurrent projects (2) already reached \u2192 MAX_PROJECTS_REACHED",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 20000,
+    "market_rent": 2000,
+    "rehab_tier": "MEDIUM",
+    "available_capital": 200000,
+    "active_projects": 2,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 61000,
+    "eligible": false,
+    "reasons": [
+      "MAX_PROJECTS_REACHED"
+    ]
+  }
+}

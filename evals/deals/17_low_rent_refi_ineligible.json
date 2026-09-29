@@ -1,0 +1,25 @@
+{
+  "id": "17_low_rent_refi_ineligible",
+  "deal_type": "brrrr",
+  "description": "Rent too low to support min DSCR refi loan \u2014 REFI_INELIGIBLE",
+  "inputs": {
+    "arv": 100000,
+    "repairs": 10000,
+    "market_rent": 900,
+    "rehab_tier": "LIGHT",
+    "purchase": 50000,
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 0,
+    "eligible": false,
+    "reasons": [
+      "REFI_INELIGIBLE",
+      "DSCR_TOO_LOW",
+      "CASH_FLOW_TOO_LOW",
+      "CASH_LEFT_IN_TOO_HIGH"
+    ]
+  }
+}

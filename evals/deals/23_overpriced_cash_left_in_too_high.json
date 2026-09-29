@@ -1,0 +1,22 @@
+{
+  "id": "23_overpriced_cash_left_in_too_high",
+  "deal_type": "brrrr",
+  "description": "Purchase price 100k is well above max_price, cash_left_in far exceeds target",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 20000,
+    "market_rent": 2000,
+    "rehab_tier": "MEDIUM",
+    "purchase": 100000,
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 61000,
+    "eligible": false,
+    "reasons": [
+      "CASH_LEFT_IN_TOO_HIGH"
+    ]
+  }
+}

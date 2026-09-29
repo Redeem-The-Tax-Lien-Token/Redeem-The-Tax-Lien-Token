@@ -1,0 +1,19 @@
+{
+  "id": "27_three_unit_eligible",
+  "deal_type": "brrrr",
+  "description": "3-unit property in allowed types \u2192 eligible (active_projects=0, within limit)",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 20000,
+    "market_rent": 2000,
+    "rehab_tier": "MEDIUM",
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "3-unit"
+  },
+  "expected": {
+    "max_price": 61000,
+    "eligible": true,
+    "cash_left_in_max": 5000
+  }
+}

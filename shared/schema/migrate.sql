@@ -1,6 +1,7 @@
 -- wholesale-brrrr-system: Canonical database schema
 -- Single source of truth. Run once via: python db-bootstrap/migrate.py
--- Tables: leads, outreach_log, lead_scores, deals, buyers, agent_events
+-- Tables: leads, outreach_log, lead_scores, deals, buyers, agent_events,
+--         agent_runs, capital_pool, state_transitions
 
 -- ─── EXTENSIONS ──────────────────────────────────────────────────────────────
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -20,13 +21,23 @@ CREATE TABLE IF NOT EXISTS leads (
     motivation_type      TEXT,              -- tax_delinquent | pre_foreclosure | vacant | high_equity
     equity_pct           NUMERIC(5,2),
     list_source          TEXT,              -- attom_distressed | list_puller | manual | csv_import
+    segment              TEXT,              -- user-defined group tag (e.g. 'Q3-Indy-NE', 'csv-batch-1')
     skip_traced_at       TIMESTAMPTZ,
     dnc_checked          BOOLEAN NOT NULL DEFAULT FALSE,
     status               TEXT NOT NULL DEFAULT 'new'
                          CHECK (status IN (
-                             'new','traced','contacted',
-                             'hot','warm','cold','dnc',
-                             'under_contract','closed','dead'
+                             -- shared acquisition front end
+                             'new', 'scored', 'skip_traced', 'outreach_active', 'responded',
+                             -- disposition buckets
+                             'hot', 'warm', 'cold', 'dnc',
+                             -- underwriting
+                             'underwriting', 'strategy_selected', 'nurture',
+                             -- offer cycle
+                             'offer_ready', 'offer_sent', 'offer_declined',
+                             -- contract (deal record takes over detail tracking)
+                             'under_contract',
+                             -- utility
+                             'escalate', 'dead'
                          )),
     manual_override_at   TIMESTAMPTZ,
     manual_override_by   TEXT,
@@ -46,10 +57,11 @@ CREATE TABLE IF NOT EXISTS outreach_log (
                 CHECK (direction IN ('outbound','inbound')),
     status      TEXT NOT NULL DEFAULT 'sent'
                 CHECK (status IN ('sent','delivered','failed','received','undelivered')),
-    twilio_sid  TEXT,
-    from_number TEXT,
-    to_number   TEXT,
-    sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    twilio_sid          TEXT,
+    from_number         TEXT,
+    to_number           TEXT,
+    disclosure_version  TEXT,              -- version string from hb1068_solicitation.txt
+    sent_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ─── TABLE: lead_scores ───────────────────────────────────────────────────────
@@ -80,10 +92,24 @@ CREATE TABLE IF NOT EXISTS deals (
     offer_sent_at   TIMESTAMPTZ,
     psa_signed_at   TIMESTAMPTZ,
     assignment_fee  NUMERIC(12,2),
-    status          TEXT NOT NULL DEFAULT 'new'
+    status          TEXT NOT NULL DEFAULT 'under_contract'
                     CHECK (status IN (
-                        'new','offer_sent','under_contract',
-                        'assigned','closed','dead'
+                        -- entry
+                        'under_contract',
+                        -- wholesale track
+                        'in_dispo', 'buyer_selected', 'assigned',
+                        'title_open_w', 'clear_to_close_w', 'closed_w', 'fee_received',
+                        -- brrrr track
+                        'due_diligence', 'funding_secured',
+                        'title_open_b', 'clear_to_close_b', 'acquired',
+                        'scope_ready', 'rehab_active', 'rehab_complete', 'rent_ready',
+                        'listed_for_rent', 'leased', 'seasoning',
+                        'refi_applied', 'appraised', 'refinanced', 'stabilized',
+                        'refi_reevaluate', 'hold_as_is', 'sell_retail',
+                        -- pivot
+                        'strategy_switch',
+                        -- utility
+                        'escalate', 'dead'
                     )),
     closed_at       TIMESTAMPTZ,
     notes           TEXT,
@@ -120,7 +146,52 @@ CREATE TABLE IF NOT EXISTS agent_events (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ─── TABLE: agent_runs ────────────────────────────────────────────────────────
+-- Observability: every agent run writes one row (§4 principle 9).
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id            SERIAL PRIMARY KEY,
+    agent_name    TEXT NOT NULL,
+    started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at   TIMESTAMPTZ,
+    inputs_hash   TEXT,              -- sha256 of the request payload
+    outputs       JSONB,
+    tokens_used   INTEGER,
+    cost_usd      NUMERIC(10,6),
+    error         TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ─── TABLE: capital_pool ──────────────────────────────────────────────────────
+-- Tracks capital availability for BRRRR eligibility decisions (§3 Step 2).
+-- Single row; updated by Agent 0 (Orchestrator) and Agent 15 (Refinance).
+CREATE TABLE IF NOT EXISTS capital_pool (
+    id                    SERIAL PRIMARY KEY,
+    available             NUMERIC(14,2) NOT NULL DEFAULT 0,
+    committed             NUMERIC(14,2) NOT NULL DEFAULT 0,
+    trapped_in_brrrr      NUMERIC(14,2) NOT NULL DEFAULT 0,
+    expected_return_at    TIMESTAMPTZ,
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ─── TABLE: state_transitions ────────────────────────────────────────────────
+-- Audit log for every lead and deal status change (§4 principle 3).
+-- No status is ever written directly — all changes go through state_machine.py.
+CREATE TABLE IF NOT EXISTS state_transitions (
+    id           SERIAL PRIMARY KEY,
+    entity_type  TEXT NOT NULL CHECK (entity_type IN ('lead', 'deal')),
+    entity_id    INTEGER NOT NULL,
+    from_status  TEXT NOT NULL,
+    to_status    TEXT NOT NULL,
+    actor        TEXT NOT NULL,   -- agent name or 'operator'
+    reason       TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ─── INDEXES ──────────────────────────────────────────────────────────────────
+
+-- state_transitions: debugging and compliance audit
+CREATE INDEX IF NOT EXISTS idx_transitions_entity
+    ON state_transitions(entity_type, entity_id, created_at DESC);
 
 -- leads: pipeline queries, phone lookups, dedup on attom_id
 CREATE INDEX IF NOT EXISTS idx_leads_status      ON leads(status);
@@ -128,6 +199,43 @@ CREATE INDEX IF NOT EXISTS idx_leads_zip         ON leads(zip);
 CREATE INDEX IF NOT EXISTS idx_leads_phone       ON leads(phone);
 CREATE INDEX IF NOT EXISTS idx_leads_attom_id    ON leads(attom_id);
 CREATE INDEX IF NOT EXISTS idx_leads_created_at  ON leads(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_leads_segment     ON leads(segment);
+
+-- additive migrations: add columns / relax constraints on existing deployments
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS segment TEXT;
+ALTER TABLE outreach_log ADD COLUMN IF NOT EXISTS disclosure_version TEXT;
+
+-- v2.1 state machine: replace CHECK constraints with the expanded status lists.
+-- DROP CONSTRAINT IF EXISTS is safe because CREATE TABLE IF NOT EXISTS re-adds
+-- the new constraint on a fresh deployment; the ALTER is only needed for existing DBs.
+DO $$ BEGIN
+    ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_status_check;
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+ALTER TABLE leads ADD CONSTRAINT leads_status_check
+    CHECK (status IN (
+        'new', 'scored', 'skip_traced', 'outreach_active', 'responded',
+        'hot', 'warm', 'cold', 'dnc',
+        'underwriting', 'strategy_selected', 'nurture',
+        'offer_ready', 'offer_sent', 'offer_declined',
+        'under_contract', 'escalate', 'dead'
+    ));
+
+DO $$ BEGIN
+    ALTER TABLE deals DROP CONSTRAINT IF EXISTS deals_status_check;
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+ALTER TABLE deals ADD CONSTRAINT deals_status_check
+    CHECK (status IN (
+        'under_contract',
+        'in_dispo', 'buyer_selected', 'assigned',
+        'title_open_w', 'clear_to_close_w', 'closed_w', 'fee_received',
+        'due_diligence', 'funding_secured',
+        'title_open_b', 'clear_to_close_b', 'acquired',
+        'scope_ready', 'rehab_active', 'rehab_complete', 'rent_ready',
+        'listed_for_rent', 'leased', 'seasoning',
+        'refi_applied', 'appraised', 'refinanced', 'stabilized',
+        'refi_reevaluate', 'hold_as_is', 'sell_retail',
+        'strategy_switch', 'escalate', 'dead'
+    ));
 
 -- outreach_log: per-lead history, inbound reply feed
 CREATE INDEX IF NOT EXISTS idx_outreach_lead_id    ON outreach_log(lead_id);
@@ -214,3 +322,409 @@ DROP TRIGGER IF EXISTS score_sync_dnc ON lead_scores;
 CREATE TRIGGER score_sync_dnc
     AFTER INSERT ON lead_scores
     FOR EACH ROW EXECUTE FUNCTION sync_dnc_to_lead();
+
+-- ─── MIGRATION v2.2: Agent 8 (Offer & Contract) columns ──────────────────────
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS strategy                TEXT
+    CHECK (strategy IN ('wholesale', 'brrrr'));
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS inspection_period_days  INTEGER;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS closing_date            DATE;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS emd_amount              NUMERIC(12,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS fallback_fee            NUMERIC(12,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS fallback_flag           TEXT;   -- e.g. 'NO_EXIT_IF_FUNDING_FAILS'
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS esign_envelope_id       TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS psa_url                 TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_a_approved_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_a_approved_by      TEXT;   -- 'operator' or user id
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS underwriting_snapshot   JSONB;  -- frozen WholesaleCase + BrrrrCase at Gate A
+
+-- Index for Gate A queue query
+CREATE INDEX IF NOT EXISTS idx_leads_offer_ready
+    ON leads(status, updated_at DESC)
+    WHERE status IN ('offer_ready', 'strategy_switch');
+
+-- ─── MIGRATION v2.3: Agent 11 (Dispo & Closing Coordinator) ──────────────────
+
+-- Track which buyer was selected for assignment
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS selected_buyer_id         INTEGER REFERENCES buyers(id);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS assignment_fee_actual     NUMERIC(12,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS assignment_esign_id       TEXT;   -- assignment agreement envelope
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS title_company             TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_b_approved_at        TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_b_approved_by        TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS closing_confirmed_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS fee_received_at           TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS fee_received_amount       NUMERIC(12,2);
+
+-- Buyer interest / offers per deal — one row per buyer who responds to a dispo blast
+CREATE TABLE IF NOT EXISTS buyer_offers (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    buyer_id        INTEGER NOT NULL REFERENCES buyers(id) ON DELETE CASCADE,
+    offer_amount    NUMERIC(12,2) NOT NULL,
+    pof_confirmed   BOOLEAN NOT NULL DEFAULT FALSE,   -- proof of funds verified
+    timeline_days   INTEGER,                          -- buyer's stated close timeline
+    emd_capacity    NUMERIC(12,2),                    -- EMD buyer can provide
+    notes           TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'qualified', 'disqualified', 'selected', 'declined')),
+    ranked          INTEGER,                          -- 1 = top choice after qualification
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, buyer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_buyer_offers_deal_id  ON buyer_offers(deal_id);
+CREATE INDEX IF NOT EXISTS idx_buyer_offers_status   ON buyer_offers(status);
+CREATE INDEX IF NOT EXISTS idx_deals_buyer_selected
+    ON deals(status, updated_at DESC)
+    WHERE status = 'buyer_selected';
+
+DROP TRIGGER IF EXISTS buyer_offers_set_updated_at ON buyer_offers;
+CREATE TRIGGER buyer_offers_set_updated_at
+    BEFORE UPDATE ON buyer_offers
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ─── MIGRATION v2.4: Agent 12 (Acquisition & Funding) + Agent 13 (Rehab Manager) ──
+
+-- BRRRR acquisition columns on deals
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS dd_complete_at          TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS funding_secured_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_lender_id           TEXT;           -- lending.yaml profile id
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_loan_amount         NUMERIC(14,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_loan_rate           NUMERIC(6,4);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_loan_points         NUMERIC(6,4);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS acq_loan_term_months    INTEGER;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS strategy_switch_reason  TEXT;
+
+-- BRRRR rehab columns on deals
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS scope_approved_at       TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_c_approved_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS gate_c_approved_by      TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS rehab_started_at        TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS rehab_complete_at       TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS total_rehab_budget      NUMERIC(14,2);  -- Gate C approved budget
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS rehab_spent             NUMERIC(14,2) DEFAULT 0;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS selected_contractor_id  INTEGER;        -- FK added after contractors table
+
+-- Due diligence checklist items (one per check per deal)
+CREATE TABLE IF NOT EXISTS due_diligence (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    check_name      TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'pass', 'fail', 'waived')),
+    notes           TEXT,
+    checked_at      TIMESTAMPTZ,
+    checked_by      TEXT,           -- 'agent_12' or operator user id
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, check_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dd_deal_id ON due_diligence(deal_id);
+
+-- Contractors registry
+CREATE TABLE IF NOT EXISTS contractors (
+    id              SERIAL PRIMARY KEY,
+    name            TEXT NOT NULL,
+    phone           TEXT,
+    email           TEXT,
+    license_number  TEXT,
+    license_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    insurance_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    insurance_expiry DATE,
+    specialty       TEXT[],         -- e.g. ARRAY['general','roofing']
+    tier_rating     TEXT CHECK (tier_rating IN ('preferred', 'approved', 'probation')),
+    notes           TEXT,
+    active          BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS contractors_set_updated_at ON contractors;
+CREATE TRIGGER contractors_set_updated_at
+    BEFORE UPDATE ON contractors
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Scope of work (header)
+CREATE TABLE IF NOT EXISTS scope_of_work (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    version         INTEGER NOT NULL DEFAULT 1,
+    status          TEXT NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft', 'pending_gate_c', 'approved', 'superseded')),
+    total_budget    NUMERIC(14,2),
+    approved_at     TIMESTAMPTZ,
+    approved_by     TEXT,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, version)
+);
+
+DROP TRIGGER IF EXISTS sow_set_updated_at ON scope_of_work;
+CREATE TRIGGER sow_set_updated_at
+    BEFORE UPDATE ON scope_of_work
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Scope line items
+CREATE TABLE IF NOT EXISTS scope_items (
+    id              SERIAL PRIMARY KEY,
+    sow_id          INTEGER NOT NULL REFERENCES scope_of_work(id) ON DELETE CASCADE,
+    category        TEXT NOT NULL,  -- e.g. 'roof', 'hvac', 'flooring', 'paint'
+    description     TEXT NOT NULL,
+    quantity        NUMERIC(10,2),
+    unit            TEXT,
+    unit_cost       NUMERIC(12,2),
+    total_cost      NUMERIC(14,2) NOT NULL,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scope_items_sow ON scope_items(sow_id);
+
+-- Contractor bids per scope
+CREATE TABLE IF NOT EXISTS contractor_bids (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    sow_id          INTEGER REFERENCES scope_of_work(id),
+    contractor_id   INTEGER NOT NULL REFERENCES contractors(id),
+    bid_amount      NUMERIC(14,2) NOT NULL,
+    timeline_days   INTEGER,
+    notes           TEXT,
+    status          TEXT NOT NULL DEFAULT 'received'
+                    CHECK (status IN ('received', 'qualified', 'disqualified', 'selected', 'rejected')),
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, contractor_id)
+);
+
+DROP TRIGGER IF EXISTS bids_set_updated_at ON contractor_bids;
+CREATE TRIGGER bids_set_updated_at
+    BEFORE UPDATE ON contractor_bids
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_bids_deal_id ON contractor_bids(deal_id);
+
+-- Draw requests (each one triggers Gate B for operator approval before funds released)
+CREATE TABLE IF NOT EXISTS draw_requests (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    draw_number     INTEGER NOT NULL,
+    contractor_id   INTEGER REFERENCES contractors(id),
+    amount_requested NUMERIC(14,2) NOT NULL,
+    amount_approved  NUMERIC(14,2),
+    description      TEXT,
+    milestone_notes  TEXT,
+    status           TEXT NOT NULL DEFAULT 'pending_gate_b'
+                     CHECK (status IN ('pending_gate_b', 'approved', 'released', 'rejected')),
+    gate_b_approved_at TIMESTAMPTZ,
+    gate_b_approved_by TEXT,
+    released_at      TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, draw_number)
+);
+
+DROP TRIGGER IF EXISTS draws_set_updated_at ON draw_requests;
+CREATE TRIGGER draws_set_updated_at
+    BEFORE UPDATE ON draw_requests
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_draws_deal_id    ON draw_requests(deal_id);
+CREATE INDEX IF NOT EXISTS idx_draws_status     ON draw_requests(status);
+
+-- Change orders (over-budget changes require Gate C re-approval)
+CREATE TABLE IF NOT EXISTS change_orders (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    sow_id          INTEGER REFERENCES scope_of_work(id),
+    co_number       INTEGER NOT NULL,
+    reason          TEXT NOT NULL,
+    amount_delta    NUMERIC(14,2) NOT NULL,  -- positive = cost increase
+    new_total       NUMERIC(14,2) NOT NULL,
+    requires_gate_c BOOLEAN NOT NULL DEFAULT FALSE,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'approved', 'rejected')),
+    gate_c_approved_at TIMESTAMPTZ,
+    gate_c_approved_by TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (deal_id, co_number)
+);
+
+DROP TRIGGER IF EXISTS co_set_updated_at ON change_orders;
+CREATE TRIGGER co_set_updated_at
+    BEFORE UPDATE ON change_orders
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_co_deal_id ON change_orders(deal_id);
+CREATE INDEX IF NOT EXISTS idx_co_status  ON change_orders(status);
+
+-- Add FK from deals to contractors (after table exists)
+ALTER TABLE deals ADD CONSTRAINT IF NOT EXISTS fk_deals_contractor
+    FOREIGN KEY (selected_contractor_id) REFERENCES contractors(id);
+
+-- Gate C queue index
+CREATE INDEX IF NOT EXISTS idx_deals_scope_ready
+    ON deals(status, updated_at DESC)
+    WHERE status IN ('scope_ready', 'rehab_active');
+
+
+-- ─── MIGRATION v2.5: Agent 14 (Leasing) · Agent 15 (Refinance) · Agent 16 (Portfolio) ──
+
+-- Leasing columns on deals
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS listed_for_rent_at   TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS leased_at            TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS rent_actual          NUMERIC(10,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS listing_id           TEXT;           -- syndication platform id
+
+-- Refi columns on deals
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS seasoning_start_date DATE;           -- acquisition recorded date
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_applied_at      TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_appraised_at    TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_appraised_value NUMERIC(14,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_closed_at       TIMESTAMPTZ;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_lender_id       TEXT;
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_loan_amount     NUMERIC(14,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_rate            NUMERIC(6,4);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS refi_payment_monthly NUMERIC(10,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS cash_left_in         NUMERIC(14,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS dscr_actual          NUMERIC(6,4);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS cash_flow_actual     NUMERIC(10,2);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS brrrr_scorecard      JSONB;          -- final scorecard snapshot
+
+-- Leases
+CREATE TABLE IF NOT EXISTS leases (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    tenant_name     TEXT NOT NULL,
+    tenant_email    TEXT,
+    tenant_phone    TEXT,
+    unit            TEXT,
+    start_date      DATE NOT NULL,
+    end_date        DATE,
+    rent_monthly    NUMERIC(10,2) NOT NULL,
+    security_deposit NUMERIC(10,2),
+    status          TEXT NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active', 'expired', 'terminated', 'pending')),
+    esign_envelope_id TEXT,
+    move_in_inspection_at TIMESTAMPTZ,
+    move_out_inspection_at TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS leases_set_updated_at ON leases;
+CREATE TRIGGER leases_set_updated_at
+    BEFORE UPDATE ON leases
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_leases_deal_id ON leases(deal_id);
+
+-- Rent payments
+CREATE TABLE IF NOT EXISTS rent_payments (
+    id              SERIAL PRIMARY KEY,
+    lease_id        INTEGER NOT NULL REFERENCES leases(id) ON DELETE CASCADE,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    due_date        DATE NOT NULL,
+    amount_due      NUMERIC(10,2) NOT NULL,
+    amount_paid     NUMERIC(10,2),
+    paid_at         TIMESTAMPTZ,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'paid', 'partial', 'late', 'unpaid')),
+    late_fee        NUMERIC(10,2) DEFAULT 0,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (lease_id, due_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rent_payments_deal_id  ON rent_payments(deal_id);
+CREATE INDEX IF NOT EXISTS idx_rent_payments_status   ON rent_payments(status, due_date);
+
+-- Tenant applications (screening audit trail — no protected characteristics stored)
+CREATE TABLE IF NOT EXISTS tenant_applications (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    applicant_name  TEXT NOT NULL,
+    applied_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    screening_id    TEXT,
+    screening_status TEXT,           -- 'pass' | 'fail' | 'pending' | 'dry_run'
+    decision        TEXT,            -- 'approved' | 'denied' | 'pending'
+    denial_reasons  TEXT[],          -- objective criteria only, never protected characteristics
+    criteria_version TEXT,           -- version of SCREENING_CRITERIA applied
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_applications_deal_id ON tenant_applications(deal_id);
+
+-- Maintenance requests
+CREATE TABLE IF NOT EXISTS maintenance_requests (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    lease_id        INTEGER REFERENCES leases(id),
+    category        TEXT,            -- 'plumbing', 'hvac', 'electrical', 'appliance', 'other'
+    description     TEXT NOT NULL,
+    priority        TEXT NOT NULL DEFAULT 'normal'
+                    CHECK (priority IN ('emergency', 'urgent', 'normal')),
+    status          TEXT NOT NULL DEFAULT 'open'
+                    CHECK (status IN ('open', 'in_progress', 'resolved', 'deferred')),
+    reported_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at     TIMESTAMPTZ,
+    contractor_id   INTEGER REFERENCES contractors(id),
+    cost            NUMERIC(10,2),
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS maint_set_updated_at ON maintenance_requests;
+CREATE TRIGGER maint_set_updated_at
+    BEFORE UPDATE ON maintenance_requests
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_maint_deal_id ON maintenance_requests(deal_id);
+CREATE INDEX IF NOT EXISTS idx_maint_status  ON maintenance_requests(status, priority);
+
+-- Capital pool ledger (tracks available, committed, trapped, recovered capital)
+CREATE TABLE IF NOT EXISTS capital_pool (
+    id              SERIAL PRIMARY KEY,
+    event_type      TEXT NOT NULL,   -- 'committed', 'recovered', 'adjustment', 'initial'
+    deal_id         INTEGER REFERENCES deals(id),
+    amount          NUMERIC(14,2) NOT NULL,  -- positive = added, negative = consumed
+    running_balance NUMERIC(14,2) NOT NULL,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_capital_pool_deal ON capital_pool(deal_id);
+
+-- Refi applications
+CREATE TABLE IF NOT EXISTS refi_applications (
+    id              SERIAL PRIMARY KEY,
+    deal_id         INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    lender_id       TEXT NOT NULL,
+    application_id  TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'submitted', 'approved', 'declined', 'dry_run')),
+    loan_requested  NUMERIC(14,2),
+    rate_quoted     NUMERIC(6,4),
+    submitted_at    TIMESTAMPTZ,
+    decided_at      TIMESTAMPTZ,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS refi_apps_set_updated_at ON refi_applications;
+CREATE TRIGGER refi_apps_set_updated_at
+    BEFORE UPDATE ON refi_applications
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_refi_apps_deal_id ON refi_applications(deal_id);
+
+-- Indexes for portfolio queries
+CREATE INDEX IF NOT EXISTS idx_deals_leased
+    ON deals(status, updated_at DESC)
+    WHERE status IN ('leased', 'seasoning', 'refi_applied', 'appraised', 'refinanced', 'stabilized');
+

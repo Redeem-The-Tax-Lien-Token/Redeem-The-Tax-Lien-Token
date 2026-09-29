@@ -1,0 +1,15 @@
+{
+  "id": "12_timeline_too_short",
+  "description": "Seller must close in 10 days — too fast for our dispo window — TIMELINE_TOO_SHORT",
+  "inputs": {
+    "arv": 180000,
+    "repairs": 20000,
+    "neighborhood_class": "B",
+    "available_buyers": 5,
+    "seller_timeline_days": 10
+  },
+  "expected": {
+    "eligible": false,
+    "reasons": ["TIMELINE_TOO_SHORT"]
+  }
+}

@@ -1,20 +1,24 @@
 """
 Outreach Agent — FastAPI app.
 
-Sends personalized SMS to traced leads via Twilio, enforces TCPA quiet hours,
-re-scrubs all phones for DNC before each campaign, and logs every send to
-outreach_log. Supports a 3-touch cadence.
+Sends personalized, HB-1068-compliant SMS to traced leads via Twilio A2P 10DLC
+Messaging Service. Enforces TCPA quiet hours, re-scrubs all phones for DNC before
+each batch, and logs every send (with disclosure_version) to outreach_log.
 
 Endpoints:
   GET  /      health check
   POST /run   send outreach batch (X-Internal-Key required)
   GET  /version
+
+⚠️ COMPLIANCE: Every outbound seller SMS is linted before send. A failed lint
+blocks the send and logs COMPLIANCE_BLOCK. (§2.1, §9)
 """
 
 import logging
 import os
 import subprocess
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -30,23 +34,37 @@ for _p in [str(_here), str(_repo_root)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from shared.db import log_agent_event, session_ctx  # noqa: E402
-from tracerfy_utils import scrub_phones              # noqa: E402
-from twilio_utils import (                           # noqa: E402
+from shared.db import log_agent_event, session_ctx                  # noqa: E402
+from shared.compliance.disclosures import build_seller_sms          # noqa: E402
+from shared.compliance.linter import check_outbound                 # noqa: E402
+from tracerfy_utils import scrub_phones                             # noqa: E402
+from twilio_utils import (                                          # noqa: E402
     build_message,
     is_within_calling_hours,
     send_sms,
+    twilio_startup_check,
+    TWILIO_MESSAGING_SERVICE_SID,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
 AGENT_NAME       = "outreach"
 INTERNAL_API_KEY = os.environ["INTERNAL_API_KEY"]
+SYSTEM_MODE      = os.environ.get("SYSTEM_MODE", "live")  # "dry_run" or "live"
 
 log = logging.getLogger(AGENT_NAME)
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="Outreach Agent", version="1.0.0")
+
+# ── Lifespan: startup self-check ─────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    twilio_startup_check()   # raises RuntimeError → fail closed if 401/bad SID
+    yield
+
+
+app = FastAPI(title="Outreach Agent", version="2.0.0", lifespan=lifespan)
 _key_header = APIKeyHeader(name="X-Internal-Key", auto_error=False)
 
 
@@ -75,13 +93,14 @@ class RunRequest(BaseModel):
 
 
 class RunResponse(BaseModel):
-    sent:               int
-    skipped_dnc:        int
-    skipped_no_phone:   int
+    sent:                int
+    skipped_dnc:         int
+    skipped_no_phone:    int
     skipped_quiet_hours: bool
-    send_errors:        int
-    dry_run:            bool
-    leads_sent:         dict   # lead_id → twilio_sid or "dry_run"
+    skipped_lint_fail:   int
+    send_errors:         int
+    dry_run:             bool
+    leads_sent:          dict   # lead_id → twilio_sid or skip reason
 
 
 # ── Lead queries ──────────────────────────────────────────────────────────────
@@ -109,9 +128,7 @@ def _pull_touch_1(db, max_leads: int) -> list[dict]:
 
 
 def _pull_touch_2(db, max_leads: int) -> list[dict]:
-    """
-    Leads contacted exactly once, no inbound reply, last outbound ≥ 3 days ago.
-    """
+    """Leads contacted exactly once, no inbound reply, last outbound ≥ 3 days ago."""
     rows = db.execute(
         text("""
             SELECT l.id, l.phone, l.owner_name, l.address, l.city, l.state, l.zip
@@ -140,9 +157,7 @@ def _pull_touch_2(db, max_leads: int) -> list[dict]:
 
 
 def _pull_touch_3(db, max_leads: int) -> list[dict]:
-    """
-    Leads contacted exactly twice, no inbound reply, last outbound ≥ 7 days ago.
-    """
+    """Leads contacted exactly twice, no inbound reply, last outbound ≥ 7 days ago."""
     rows = db.execute(
         text("""
             SELECT l.id, l.phone, l.owner_name, l.address, l.city, l.state, l.zip
@@ -210,12 +225,14 @@ def version():
 
 @app.post("/run", response_model=RunResponse)
 def run(req: RunRequest, _: str = Depends(_require_key)):
+    is_dry_run = req.dry_run or (SYSTEM_MODE == "dry_run")
+
     # ── 1. TCPA quiet-hours check ──────────────────────────────────────────
-    if not req.dry_run and not is_within_calling_hours():
+    if not is_dry_run and not is_within_calling_hours():
         return RunResponse(
             sent=0, skipped_dnc=0, skipped_no_phone=0,
-            skipped_quiet_hours=True, send_errors=0,
-            dry_run=False, leads_sent={},
+            skipped_quiet_hours=True, skipped_lint_fail=0,
+            send_errors=0, dry_run=is_dry_run, leads_sent={},
         )
 
     # ── 2. Pull leads ──────────────────────────────────────────────────────
@@ -229,11 +246,11 @@ def run(req: RunRequest, _: str = Depends(_require_key)):
     if not leads:
         return RunResponse(
             sent=0, skipped_dnc=0, skipped_no_phone=0,
-            skipped_quiet_hours=False, send_errors=0,
-            dry_run=req.dry_run, leads_sent={},
+            skipped_quiet_hours=False, skipped_lint_fail=0,
+            send_errors=0, dry_run=is_dry_run, leads_sent={},
         )
 
-    # ── 3. Collect phones and re-scrub for DNC ────────────────────────────
+    # ── 3. Collect phones and re-scrub for DNC (fail-closed) ─────────────
     phones_by_lead = {
         lead["id"]: lead["phone"]
         for lead in leads
@@ -242,7 +259,7 @@ def run(req: RunRequest, _: str = Depends(_require_key)):
     skipped_no_phone = len(leads) - len(phones_by_lead)
 
     clean_phones: set[str] = set()
-    if phones_by_lead and not req.dry_run:
+    if phones_by_lead and not is_dry_run:
         clean_phones = scrub_phones(list(phones_by_lead.values()))
         log.info(
             "DNC re-scrub: %d phones in → %d clean",
@@ -250,15 +267,15 @@ def run(req: RunRequest, _: str = Depends(_require_key)):
         )
         if not clean_phones:
             log.warning("DNC scrub returned empty (fail-closed) — no sends")
-    elif req.dry_run:
-        # Skip actual scrub in dry-run; treat all phones as clean
+    elif is_dry_run:
         clean_phones = set(phones_by_lead.values())
 
     # ── 4. Send ────────────────────────────────────────────────────────────
-    sent          = 0
-    skipped_dnc   = 0
-    send_errors   = 0
-    leads_sent: dict = {}
+    sent              = 0
+    skipped_dnc       = 0
+    skipped_lint_fail = 0
+    send_errors       = 0
+    leads_sent: dict  = {}
 
     with session_ctx() as db:
         for lead in leads:
@@ -269,7 +286,6 @@ def run(req: RunRequest, _: str = Depends(_require_key)):
                 continue
 
             if phone not in clean_phones:
-                # DNC — flip lead status and stop
                 db.execute(
                     text(
                         "UPDATE leads SET status = 'dnc' "
@@ -281,44 +297,63 @@ def run(req: RunRequest, _: str = Depends(_require_key)):
                 leads_sent[lid] = "skipped_dnc"
                 continue
 
-            message = build_message(
+            # Build body → inject disclosure + opt-out via build_seller_sms
+            body = build_message(
                 touch_number = req.touch_number,
                 owner_name   = lead.get("owner_name"),
                 address      = lead.get("address", "your property"),
                 city         = lead.get("city", "Indianapolis"),
             )
+            try:
+                full_message, disclosure_version = build_seller_sms(body)
+            except RuntimeError as exc:
+                log.error("COMPLIANCE_BLOCK: disclosure load failed lead_id=%s: %s", lid, exc)
+                skipped_lint_fail += 1
+                leads_sent[lid] = f"compliance_block: {exc}"
+                continue
+
+            # Run compliance linter before any send
+            lint = check_outbound(full_message, disclosure_version)
+            if not lint.ok:
+                log.error(
+                    "COMPLIANCE_BLOCK lead_id=%s segments=%d reason=%s",
+                    lid, lint.segment_count, lint.reason,
+                )
+                skipped_lint_fail += 1
+                leads_sent[lid] = f"compliance_block: {lint.reason}"
+                continue
 
             sid = "dry_run"
-            if not req.dry_run:
+            if not is_dry_run:
                 try:
-                    sid = send_sms(phone, message)
+                    sid = send_sms(phone, full_message)
                 except Exception as exc:
                     log.error("Twilio error lead_id=%s: %s", lid, exc)
                     send_errors += 1
                     leads_sent[lid] = f"send_error: {exc}"
                     continue
 
-            # Log to outreach_log
+            # Log to outreach_log with disclosure_version
             db.execute(
                 text("""
                     INSERT INTO outreach_log
                         (lead_id, message, channel, direction, status,
-                         twilio_sid, from_number, to_number)
+                         twilio_sid, from_number, to_number, disclosure_version)
                     VALUES
                         (:lead_id, :message, 'sms', 'outbound',
-                         :status, :twilio_sid, :from_num, :to_num)
+                         :status, :twilio_sid, :from_num, :to_num, :disc_ver)
                 """),
                 {
-                    "lead_id":   lid,
-                    "message":   message,
-                    "status":    "sent" if not req.dry_run else "dry_run",
-                    "twilio_sid": sid if not req.dry_run else None,
-                    "from_num":  os.environ.get("TWILIO_FROM_NUMBER", ""),
-                    "to_num":    phone,
+                    "lead_id":          lid,
+                    "message":          full_message,
+                    "status":           "sent" if not is_dry_run else "dry_run",
+                    "twilio_sid":       sid if not is_dry_run else None,
+                    "from_num":         TWILIO_MESSAGING_SERVICE_SID,
+                    "to_num":           phone,
+                    "disc_ver":         disclosure_version,
                 },
             )
 
-            # Advance status: traced → contacted (touch 1), or stay contacted
             if lead.get("status") == "traced":
                 db.execute(
                     text(
@@ -333,18 +368,22 @@ def run(req: RunRequest, _: str = Depends(_require_key)):
 
     log_agent_event(
         source_agent=AGENT_NAME,
-        target_agent="twilio" if not req.dry_run else "dry_run",
+        target_agent="twilio" if not is_dry_run else "dry_run",
         payload={"touch_number": req.touch_number, "lead_count": len(leads)},
-        response={"sent": sent, "skipped_dnc": skipped_dnc, "errors": send_errors},
+        response={
+            "sent": sent, "skipped_dnc": skipped_dnc,
+            "skipped_lint_fail": skipped_lint_fail, "errors": send_errors,
+        },
         status_code=200,
     )
 
     return RunResponse(
-        sent                = sent,
-        skipped_dnc         = skipped_dnc,
-        skipped_no_phone    = skipped_no_phone,
-        skipped_quiet_hours = False,
-        send_errors         = send_errors,
-        dry_run             = req.dry_run,
-        leads_sent          = leads_sent,
+        sent                 = sent,
+        skipped_dnc          = skipped_dnc,
+        skipped_no_phone     = skipped_no_phone,
+        skipped_quiet_hours  = False,
+        skipped_lint_fail    = skipped_lint_fail,
+        send_errors          = send_errors,
+        dry_run              = is_dry_run,
+        leads_sent           = leads_sent,
     )

@@ -1,0 +1,18 @@
+{
+  "id": "30_repairs_eat_all_profit",
+  "deal_type": "brrrr",
+  "description": "HEAVY repairs (100k) on modest ARV (150k): rent can't support refi, max_price=0",
+  "inputs": {
+    "arv": 150000,
+    "repairs": 100000,
+    "market_rent": 1500,
+    "rehab_tier": "HEAVY",
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 0,
+    "eligible": false
+  }
+}

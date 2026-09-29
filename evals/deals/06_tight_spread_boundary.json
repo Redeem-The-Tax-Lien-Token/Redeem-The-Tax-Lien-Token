@@ -1,0 +1,17 @@
+{
+  "id": "06_tight_spread_boundary",
+  "description": "MAO barely positive ($1k) — passes all gates at the boundary; minimum viable wholesale",
+  "inputs": {
+    "arv": 100000,
+    "repairs": 59000,
+    "neighborhood_class": "STD",
+    "available_buyers": 3,
+    "seller_timeline_days": 21
+  },
+  "expected": {
+    "eligible": true,
+    "offer_price": 1000,
+    "fee_at_offer": 10000,
+    "reasons": []
+  }
+}

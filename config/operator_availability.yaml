@@ -1,0 +1,26 @@
+# Operator availability schedule (ADR-003).
+# Gates A/B/C are not expected to be actioned during unavailable windows.
+# The Orchestrator (Agent 0) escalates deadlines that would fall inside these
+# windows to the last available slot before them.
+#
+# All times are America/Indiana/Indianapolis local time.
+
+timezone: "America/Indiana/Indianapolis"
+
+unavailable_windows:
+  - label: "warehouse_shift"
+    description: "Weekend warehouse shifts — Brandon unavailable"
+    start_day: "Friday"
+    start_time: "16:00"
+    end_day: "Sunday"
+    end_time: "23:59"
+
+# Gate-deadline escalation policy:
+# Anything due (or needing a gate decision) inside an unavailable window will be
+# escalated at the cutoff below on the last available day before the window opens.
+escalation_cutoff:
+  day_of_week: "Thursday"
+  time: "18:00"
+
+# SMS and dashboard alert lead time before deadline (hours).
+deadline_alert_hours: 72

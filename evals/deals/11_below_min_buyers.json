@@ -1,0 +1,15 @@
+{
+  "id": "11_below_min_buyers",
+  "description": "Only 2 qualified buyers — below min_buyer_count of 3 — LOW_BUYER_DEMAND",
+  "inputs": {
+    "arv": 175000,
+    "repairs": 25000,
+    "neighborhood_class": "B",
+    "available_buyers": 2,
+    "seller_timeline_days": 30
+  },
+  "expected": {
+    "eligible": false,
+    "reasons": ["LOW_BUYER_DEMAND"]
+  }
+}

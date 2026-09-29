@@ -1,0 +1,21 @@
+{
+  "id": "28_gut_large_repairs",
+  "deal_type": "brrrr",
+  "description": "GUT rehab 60k repairs: math gives a max price but REHAB_TIER_TOO_HIGH fires",
+  "inputs": {
+    "arv": 200000,
+    "repairs": 60000,
+    "market_rent": 2000,
+    "rehab_tier": "GUT",
+    "available_capital": 200000,
+    "active_projects": 0,
+    "property_type": "SFR"
+  },
+  "expected": {
+    "max_price": 13000,
+    "eligible": false,
+    "reasons": [
+      "REHAB_TIER_TOO_HIGH"
+    ]
+  }
+}
