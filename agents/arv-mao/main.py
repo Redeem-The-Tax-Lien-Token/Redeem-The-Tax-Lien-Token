@@ -4,9 +4,10 @@ ARV/MAO Agent — FastAPI app.
 Endpoints:
   GET  /          health check
   POST /run       pull ATTOM comps → auto repair estimate → Claude ARV → MAO
+  POST /underwrite  full §3 strategy engine: wholesale + BRRRR → chosen strategy
   GET  /version   git commit hash for deploy verification
 
-All /run calls require the X-Internal-Key header.
+All calls require the X-Internal-Key header.
 
 Repair estimation pipeline (fires only when repair_estimate is NOT supplied):
   1. ATTOM property/detail  → subject_sqft, subject_year_built, attom_condition
@@ -43,6 +44,13 @@ from attom_utils      import get_comps, get_property_detail  # noqa: E402
 from repair_estimate  import estimate as estimate_repair      # noqa: E402
 from street_view      import check_coverage, fetch_image     # noqa: E402
 from condition_vision import read_condition                   # noqa: E402
+
+# Strategy engine — imported lazily so the /run endpoint stays fast
+from core.strategy.wholesale  import compute_wholesale     # noqa: E402
+from core.strategy.brrrr      import compute_brrrr, brrrr_max_price  # noqa: E402
+from core.strategy.eligibility import check_wholesale, check_brrrr   # noqa: E402
+from core.strategy.offer_policy import select_offer_price            # noqa: E402
+from adapters.rent_comps       import manual_entry as rent_manual     # noqa: E402
 
 log = logging.getLogger("arv-mao")
 logging.basicConfig(level=logging.INFO)
@@ -287,4 +295,217 @@ def run(req: RunRequest, _: str = Depends(_require_key)):
         comps                = comps,
         deal_id              = deal_id,
         db_warning           = db_warning,
+    )
+
+
+# ── /underwrite — full §3 Strategy Decision Engine ────────────────────────────
+
+class UnderwriteRequest(BaseModel):
+    # Property inputs (can come from a prior /run call)
+    arv:                  float  = Field(..., description="Mid-point ARV from /run or manual")
+    repairs:              float  = Field(..., description="Repair estimate")
+    neighborhood_class:   str    = Field(..., description="A | B | C")
+    # Rent (manual entry — phase 1; will be fetched automatically in phase 2)
+    market_rent:          float  = Field(..., description="Gross monthly market rent (from manual comp review)")
+    rent_comp_count:      int    = Field(0,   description="Number of rental comps used")
+    rent_confidence:      str    = Field("medium", description="low | medium | high")
+    rent_notes:           str    = Field("",  description="Provenance for the rent estimate")
+    # Deal context
+    available_buyers:     int    = Field(5,   description="Active qualified buyers matching zip/price/tier")
+    seller_timeline_days: int    = Field(30,  description="Days seller needs to close")
+    available_capital:    float  = Field(0.0, description="Capital available for BRRRR deployment")
+    active_projects:      int    = Field(0,   description="Active BRRRR projects count")
+    property_type:        str    = Field("SFR", description="SFR | 2-unit | 3-unit | 4-unit")
+    repair_tier:          str    = Field("MEDIUM", description="LIGHT | MEDIUM | HEAVY | GUT")
+    # Optional
+    deal_id:              Optional[int] = None
+    lead_id:              Optional[int] = None
+
+
+class UnderwriteResponse(BaseModel):
+    # Chosen strategy
+    strategy:             str             # "wholesale" | "brrrr" | "nurture"
+    offer_price:          Optional[float]
+    fallback_fee:         Optional[float]
+    no_exit_if_funding_fails: bool
+    # Wholesale
+    wholesale_offer_price:  float
+    wholesale_fee:          float
+    wholesale_eligible:     bool
+    wholesale_reasons:      list[str]
+    # BRRRR (None when brrrr_enabled=False or ineligible)
+    brrrr_max_price:        Optional[float]
+    brrrr_cash_left_in:     Optional[float]
+    brrrr_dscr:             Optional[float]
+    brrrr_cash_flow:        Optional[float]
+    brrrr_refi_binding:     Optional[str]
+    brrrr_eligible:         bool
+    brrrr_reasons:          list[str]
+    # Rent comps used
+    rent_comps_source:      str
+    rent_comp_count:        int
+    rent_confidence:        str
+    # Gate A flags
+    gate_a_required:        bool
+    risk_flags:             list[str]
+
+
+@app.post("/underwrite", response_model=UnderwriteResponse)
+def underwrite(req: UnderwriteRequest, _: str = Depends(_require_key)):
+    """
+    Run the §3 Strategy Decision Engine.
+
+    Produces a full wholesale case and (if enabled) BRRRR case, applies
+    eligibility gates, picks the strategy, and returns the Gate A packet.
+
+    market_rent must come from a manual_entry() call (phase 1) or a real
+    rent_comps API call (phase 2). Pass rent_comp_count=0 and
+    rent_confidence="low" if you have not reviewed comps yet — this will
+    fail the BRRRR eligibility gate and force wholesale evaluation only.
+    """
+    risk_flags: list[str] = []
+
+    # ── Rent comps (manual phase 1) ───────────────────────────────────────
+    rent_result = rent_manual(
+        market_rent  = req.market_rent,
+        comp_count   = req.rent_comp_count,
+        confidence   = req.rent_confidence,
+        notes        = req.rent_notes,
+    )
+
+    # ── Wholesale case ────────────────────────────────────────────────────
+    w_case  = compute_wholesale(
+        arv                = req.arv,
+        repairs            = req.repairs,
+        neighborhood_class = req.neighborhood_class,
+    )
+    w_elig  = check_wholesale(
+        case                 = w_case,
+        available_buyers     = req.available_buyers,
+        seller_timeline_days = req.seller_timeline_days,
+    )
+
+    # ── BRRRR case (skip when capital = 0 or brrrr_enabled=False) ─────────
+    b_max_price  = None
+    b_cash_left  = None
+    b_dscr       = None
+    b_cash_flow  = None
+    b_refi_bind  = None
+    b_eligible   = False
+    b_reasons: list[str] = []
+
+    try:
+        from core.strategy._config import load as _load_cfg
+        cfg = _load_cfg()
+        brrrr_on = cfg.get("brrrr", {}).get("enabled", False)
+    except Exception:
+        brrrr_on = False
+
+    if brrrr_on and req.available_capital > 0:
+        try:
+            b_max_price = brrrr_max_price(
+                repairs     = req.repairs,
+                arv         = req.arv,
+                market_rent = rent_result.market_rent,
+                rehab_tier  = req.repair_tier,
+            )
+            if b_max_price is not None and b_max_price > 0:
+                b_case_at_max = compute_brrrr(
+                    purchase    = b_max_price,
+                    repairs     = req.repairs,
+                    arv         = req.arv,
+                    market_rent = rent_result.market_rent,
+                    rehab_tier  = req.repair_tier,
+                )
+                b_cash_left = b_case_at_max.cash_left_in
+                b_dscr      = b_case_at_max.dscr
+                b_cash_flow = b_case_at_max.cash_flow
+                b_refi_bind = b_case_at_max.refi_binding
+
+                b_elig = check_brrrr(
+                    case              = b_case_at_max,
+                    available_capital = req.available_capital,
+                    active_projects   = req.active_projects,
+                    property_type     = req.property_type,
+                )
+                b_eligible = b_elig.all_pass
+                b_reasons  = list(b_elig.reasons)
+        except Exception as exc:
+            log.warning("BRRRR engine error (non-fatal): %s", exc)
+            b_reasons = [f"ENGINE_ERROR: {exc}"]
+            risk_flags.append(f"BRRRR engine error: {exc}")
+
+    # ── Strategy selection (§3 Step 3–4) ──────────────────────────────────
+    offer_price: Optional[float] = None
+    strategy = "nurture"
+
+    if w_elig.all_pass and not b_eligible:
+        strategy    = "wholesale"
+        offer_price = w_case.offer_price
+    elif b_eligible and not w_elig.all_pass:
+        strategy    = "brrrr"
+        offer_price = b_max_price
+    elif w_elig.all_pass and b_eligible:
+        # Both eligible — take higher offer (highest_eligible policy)
+        if b_max_price is not None and b_max_price >= w_case.offer_price:
+            strategy    = "brrrr"
+            offer_price = b_max_price
+        else:
+            strategy    = "wholesale"
+            offer_price = w_case.offer_price
+    # else: neither → nurture
+
+    # ── Fallback fee check ────────────────────────────────────────────────
+    fallback_fee = None
+    no_exit      = False
+    if strategy == "brrrr" and offer_price is not None:
+        fallback_fee = (req.arv * w_case.discount_rate) - req.repairs - offer_price
+        if fallback_fee < w_case.fee_at_offer or not w_elig.all_pass:
+            no_exit = True
+            risk_flags.append("NO_EXIT_IF_FUNDING_FAILS")
+
+    # ── Risk flags ────────────────────────────────────────────────────────
+    if rent_result.comp_count < 2:
+        risk_flags.append("LOW_RENT_COMP_COUNT")
+    if rent_result.confidence == "low":
+        risk_flags.append("LOW_RENT_CONFIDENCE")
+    if w_case.offer_price == 0:
+        risk_flags.append("ZERO_WHOLESALE_OFFER")
+
+    gate_a = offer_price is not None and offer_price > 0
+
+    log_agent_event(
+        source_agent = AGENT_NAME,
+        target_agent = "strategy_engine",
+        payload      = {
+            "deal_id":   req.deal_id,
+            "arv":       req.arv,
+            "repairs":   req.repairs,
+            "strategy":  strategy,
+        },
+        response     = {"offer_price": offer_price, "risk_flags": risk_flags},
+        status_code  = 200,
+    )
+
+    return UnderwriteResponse(
+        strategy                   = strategy,
+        offer_price                = offer_price,
+        fallback_fee               = fallback_fee,
+        no_exit_if_funding_fails   = no_exit,
+        wholesale_offer_price      = w_case.offer_price,
+        wholesale_fee              = w_case.fee_at_offer,
+        wholesale_eligible         = w_elig.all_pass,
+        wholesale_reasons          = list(w_elig.reasons),
+        brrrr_max_price            = b_max_price,
+        brrrr_cash_left_in         = b_cash_left,
+        brrrr_dscr                 = b_dscr,
+        brrrr_cash_flow            = b_cash_flow,
+        brrrr_refi_binding         = b_refi_bind,
+        brrrr_eligible             = b_eligible,
+        brrrr_reasons              = b_reasons,
+        rent_comps_source          = rent_result.source,
+        rent_comp_count            = rent_result.comp_count,
+        rent_confidence            = rent_result.confidence,
+        gate_a_required            = gate_a,
+        risk_flags                 = risk_flags,
     )
