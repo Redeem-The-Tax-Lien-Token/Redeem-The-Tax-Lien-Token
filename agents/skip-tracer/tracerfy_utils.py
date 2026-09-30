@@ -15,11 +15,22 @@ import requests
 
 TRACERFY_BASE = "https://app.tracerfy.com/api"
 
-_HEADERS = {
-    "Authorization": f"Bearer {os.environ['TRACERFY_API_KEY']}",
-    "Content-Type":  "application/json",
-}
 _TIMEOUT = 30
+
+
+def _headers() -> dict:
+    """Build request headers at call time so missing TRACERFY_API_KEY only
+    fails when a live API call is made, not on import."""
+    key = os.getenv("TRACERFY_API_KEY", "")
+    if not key:
+        raise RuntimeError(
+            "TRACERFY_API_KEY is not set. Add it to Replit Secrets / .env before "
+            "making live Tracerfy calls."
+        )
+    return {
+        "Authorization": f"Bearer {key}",
+        "Content-Type":  "application/json",
+    }
 
 
 # ── Instant trace ─────────────────────────────────────────────────────────────
@@ -38,7 +49,7 @@ def trace_single(address: str, city: str, state: str) -> dict:
         "state":      state,
         "find_owner": True,
     }
-    resp = requests.post(url, headers=_HEADERS, json=payload, timeout=_TIMEOUT)
+    resp = requests.post(url, headers=_headers(), json=payload, timeout=_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
@@ -61,7 +72,7 @@ def scrub_phones(phone_list: list[str]) -> set[str]:
     try:
         resp = requests.post(
             url,
-            headers=_HEADERS,
+            headers=_headers(),
             json={"phones": phone_list},
             timeout=_TIMEOUT,
         )

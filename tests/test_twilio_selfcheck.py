@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+twilio = pytest.importorskip("twilio", reason="twilio package not installed — skipped in CI without Twilio SDK")
+
 # Insert agent path so twilio_utils can be imported
 _agent_dir  = Path(__file__).parent.parent / "agents" / "outreach"
 _repo_root  = Path(__file__).parent.parent
