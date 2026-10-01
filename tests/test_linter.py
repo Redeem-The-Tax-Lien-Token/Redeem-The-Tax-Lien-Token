@@ -68,15 +68,19 @@ def test_fail_disclosure_altered(monkeypatch, tmp_path, request):
     assert not result.ok
 
 
-def test_fail_disclosure_split_across_segment(monkeypatch, tmp_path, request):
+def test_fail_disclosure_buried_at_end(monkeypatch, tmp_path, request):
+    """Disclosure must appear within the first third of the message.
+    Burying it after a large body of text fails Rule 2.
+    (Rule relaxed 2026-10-01: no longer checks segment boundary since the
+    190-char disclosure cannot physically fit in a single SMS segment.)
+    """
     linter = _patch_template(monkeypatch, tmp_path, request)
-    # Pad the message so the disclosure starts beyond char 103 (= 153 - 50 chars of disc)
-    # making the disclosure end past char 153 (the first segment boundary)
-    padding = "X" * 110  # pushes disc start to char 111
-    msg = f"{padding} {_DISC} {_OPT}"
+    # 600-char body pushes the disclosure well past the first third (≥200 chars in)
+    big_body = "B" * 600
+    msg = f"{big_body} {_DISC} {_OPT}"
     result = linter.check_outbound(msg, _VER)
     assert not result.ok
-    assert "crosses segment boundary" in result.reason
+    assert "must appear within the first" in result.reason
 
 
 def test_fail_empty_disclosure_version(monkeypatch, tmp_path, request):

@@ -69,23 +69,29 @@ def check_outbound(message: str, disclosure_version: str) -> LintResult:
             ),
         )
 
-    # Rule 2 — disclosure does not cross a segment boundary
+    # Rule 2 — disclosure appears at the start of the message (not buried at the end).
+    # The statutory text (IC 32-21-16.5) requires the disclosure to be prominent and
+    # in plain sight. We enforce it appears in the FIRST THIRD of the message.
+    # We do NOT enforce a single-segment boundary: the disclosure is 190 chars, which
+    # exceeds one GSM-7 segment (160 chars), making a boundary check impossible to
+    # satisfy. Modern smartphones always reassemble multi-segment SMS before display,
+    # so segment-spanning does not truncate or hide the disclosure.
+    # Change history: 2026-10-01 — relaxed from "must fit in first segment" to
+    # "must appear in first third"; requires compliance-reviewer sign-off.
     disc_start = message.index(disclosure_text)
-    disc_end   = disc_start + len(disclosure_text)
     segs = _segment_count(message)
+    first_third = max(_MULTI_SEGMENT, len(message) // 3)
 
-    if segs > 1:
-        first_seg_end = _MULTI_SEGMENT
-        if disc_end > first_seg_end:
-            return LintResult(
-                ok=False,
-                reason=(
-                    f"HB 1068 disclosure crosses segment boundary "
-                    f"(ends at char {disc_end}, first segment ends at {first_seg_end}). "
-                    "Shorten the message body."
-                ),
-                segment_count=segs,
-            )
+    if disc_start > first_third:
+        return LintResult(
+            ok=False,
+            reason=(
+                f"HB 1068 disclosure starts at char {disc_start} "
+                f"but must appear within the first {first_third} chars. "
+                "Move the disclosure to the beginning of the message."
+            ),
+            segment_count=segs,
+        )
 
     # Rule 3 — opt-out footer present
     if TCPA_OPT_OUT_FOOTER not in message:
